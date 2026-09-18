@@ -6,9 +6,8 @@ import shutil
 import urllib.request
 import zipfile
 import json
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
 
 st.set_page_config(page_title="YouTube MKV Archiver & Drive", layout="centered")
 
@@ -44,30 +43,46 @@ if "YOUTUBE_COOKIES" in st.secrets:
     with open(cookie_path, "w", encoding="utf-8") as f:
         f.write(st.secrets["YOUTUBE_COOKIES"])
 
-# دالة الرفع إلى Google Drive
+# دالة الرفع إلى Google Drive عبر PyDrive2 المتوافقة تماماً
 def upload_to_gdrive(file_path):
     try:
         if "GDRIVE_KEY" not in st.secrets or "GDRIVE_FOLDER_ID" not in st.secrets:
             st.error("بيانات Google Drive غير مكتملة في Streamlit Secrets.")
             return False
 
-        key_info = json.loads(st.secrets["GDRIVE_KEY"])
+        # كتابة مفتاح الخدمة مؤقتاً لملف JSON ليتم اعتماده بواسطة PyDrive2
+        creds_dict = json.loads(st.secrets["GDRIVE_KEY"])
+        temp_creds_path = "temp_service_account.json"
+        with open(temp_creds_path, "w", encoding="utf-8") as f:
+            json.dump(creds_dict, f)
+
         folder_id = st.secrets["GDRIVE_FOLDER_ID"]
 
-        creds = service_account.Credentials.from_service_account_info(
-            key_info, scopes=['https://www.googleapis.com/auth/drive.file']
-        )
-        service = build('drive', 'v3', credentials=creds)
+        # إعداد المصادقة عبر Service Account بدون متصفح
+        gauth = GoogleAuth()
+        gauth.settings = {
+            "client_config_backend": "service",
+            "service_config": {
+                "client_json_file_path": temp_creds_path,
+            }
+        }
+        gauth.ServiceAuth()
+        drive = GoogleDrive(gauth)
 
         file_name = os.path.basename(file_path)
-        body = {
-            'name': file_name,
-            'parents': [folder_id]
-        }
-        media = MediaFileUpload(file_path, resumable=True)
-        
         st.info(f"جاري رفع الملف `{file_name}` إلى Google Drive...")
-        file = service.files().create(body=body, media_body=media, fields='id').execute()
+        
+        gfile = drive.CreateFile({
+            'title': file_name,
+            'parents': [{'id': folder_id}]
+        })
+        gfile.SetContentFile(file_path)
+        gfile.Upload()
+
+        # تنظيف ملف الاعتماد المؤقت
+        if os.path.exists(temp_creds_path):
+            os.remove(temp_creds_path)
+
         return True
     except Exception as e:
         st.error(f"حدث خطأ أثناء الرفع إلى Google Drive: {e}")
@@ -129,11 +144,9 @@ if st.button("بدء المعالجة، التحميل والرفع", type="prim
             mkv_files = glob.glob(f"{output_dir}/*.mkv")
             if mkv_files:
                 for f in mkv_files:
-                    # رفع الملف إلى Google Drive
                     success = upload_to_gdrive(f)
                     if success:
-                        st.success(f"تم رفع الملف بنجاح إلى مجلد Google Drive المحدد!")
-                        # حذف الملف من السيرفر لتفريغ المساحة
+                        st.success("تم رفع الملف بنجاح إلى مجلد Google Drive المحدد!")
                         os.remove(f)
                         st.info("تم تنظيف السيرفر السحابي وحذف النسخة المحلية بنجاح.")
         else:
