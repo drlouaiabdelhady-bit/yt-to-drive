@@ -116,9 +116,9 @@ if st.button("بدء المعالجة، التحميل والرفع المنظم
         output_dir = "downloads"
         os.makedirs(output_dir, exist_ok=True)
 
-        # أمر استخراج اسم القناة واسم القائمة أولاً عبر yt-dlp
+        # أمر استخراج اسم القناة واسم القائمة أولاً عبر yt-dlp مع تجاوز تدقيق قوائم التشغيل
         st.info("جاري استخراج بيانات القناة وقائمة التشغيل...")
-        info_cmd = ["yt-dlp", "--print", "%(channel)s|||%(playlist_title)s", "--no-download"]
+        info_cmd = ["yt-dlp", "--extractor-args", "youtubetab:skip=authcheck", "--print", "%(channel)s|||%(playlist_title)s", "--no-download"]
         if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
             info_cmd.extend(["--cookies", cookie_path])
         info_cmd.append(url.strip())
@@ -141,6 +141,10 @@ if st.button("بدء المعالجة، التحميل والرفع المنظم
             "yt-dlp",
             # تفعيل جلب حزم فك التشفير ومحرك Deno الأساسي لحل ألغاز n-challenge
             "--remote-components", "ejs:github",
+            # حل مشكلة HTTP 429 وتجاوز تدقيق المصادقة للقوائم
+            "--extractor-args", "youtubetab:skip=authcheck",
+            # تقييد معدل الطلبات لتفادي حظر 429
+            "--sleep-requests", "2",
             # أولوية أعلى دقة فيديو + مسار الصوت العربي
             "-f", "bv*+ba[language^=ar]/bv*+ba/b",
             # التغليف النهائي داخل حاوية Matroska (MKV)
