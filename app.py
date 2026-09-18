@@ -18,9 +18,8 @@ if st.button("بدء المعالجة والتنزيل", type="primary"):
         os.makedirs(output_dir, exist_ok=True)
 
         cmd = [
-           cmd = [
             "yt-dlp",
-            # تخطي قيود خوادم السحاب بمحاكاة تطبيقات الجوال
+            # تخطي حظر 403 عبر محاكاة تطبيق الجوال
             "--extractor-args", "youtube:player_client=ios,android",
             # أولوية أعلى دقة فيديو + مسار الصوت العربي (أو أفضل صوت متاح كبديل)
             "-f", "bv*+ba[language^=ar]/bv*+ba/b",
@@ -43,15 +42,12 @@ if st.button("بدء المعالجة والتنزيل", type="primary"):
             "-o", f"{output_dir}/%(title)s.%(ext)s",
             url.strip()
         ]
-        ]
 
         st.info("بدأت معالجة المقطع وسحب المسارات...")
         
-        # صندوق لعرض مخرجات الطرفية بشكل مباشر لمتابعة التقدم
         terminal_box = st.empty()
         log_lines = []
 
-        # تشغيل الأمر عبر النظام لقراءة وسائط yt-dlp بدقة 1:1
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
