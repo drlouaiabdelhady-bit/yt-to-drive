@@ -43,14 +43,13 @@ if "YOUTUBE_COOKIES" in st.secrets:
     with open(cookie_path, "w", encoding="utf-8") as f:
         f.write(st.secrets["YOUTUBE_COOKIES"])
 
-# دالة الرفع إلى Google Drive عبر PyDrive2 المتوافقة تماماً
+# دالة الرفع إلى Google Drive باستخدام PyDrive2
 def upload_to_gdrive(file_path):
     try:
         if "GDRIVE_KEY" not in st.secrets or "GDRIVE_FOLDER_ID" not in st.secrets:
             st.error("بيانات Google Drive غير مكتملة في Streamlit Secrets.")
             return False
 
-        # كتابة مفتاح الخدمة مؤقتاً لملف JSON ليتم اعتماده بواسطة PyDrive2
         creds_dict = json.loads(st.secrets["GDRIVE_KEY"])
         temp_creds_path = "temp_service_account.json"
         with open(temp_creds_path, "w", encoding="utf-8") as f:
@@ -58,7 +57,6 @@ def upload_to_gdrive(file_path):
 
         folder_id = st.secrets["GDRIVE_FOLDER_ID"]
 
-        # إعداد المصادقة عبر Service Account بدون متصفح
         gauth = GoogleAuth()
         gauth.settings = {
             "client_config_backend": "service",
@@ -79,7 +77,6 @@ def upload_to_gdrive(file_path):
         gfile.SetContentFile(file_path)
         gfile.Upload()
 
-        # تنظيف ملف الاعتماد المؤقت
         if os.path.exists(temp_creds_path):
             os.remove(temp_creds_path)
 
@@ -100,8 +97,17 @@ if st.button("بدء المعالجة، التحميل والرفع", type="prim
         cmd = [
             "yt-dlp",
             "--remote-components", "ejs:github",
+            # أولوية أعلى دقة فيديو + مسار الصوت العربي
             "-f", "bv*+ba[language^=ar]/bv*+ba/b",
+            # التغليف النهائي داخل حاوية Matroska (MKV)
             "--merge-output-format", "mkv",
+            # إدارة أخطاء الـ Fragments وإعادة المحاولة لتفادي الحظر المؤقت
+            "--retries", "20",
+            "--fragment-retries", "20",
+            "--retry-sleep", "fragment:exp=1:5",
+            "--skip-unavailable-fragments",
+            "--socket-timeout", "30",
+            # الأرشفة والبيانات الوصفية
             "--embed-metadata",
             "--embed-chapters",
             "--embed-thumbnail",
