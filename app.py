@@ -83,7 +83,10 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
         gauth.ServiceAuth()
         drive = GoogleDrive(gauth)
 
+        # 1. إنشاء أو جلب مجلد القناة داخل المجلد الرئيسي
         channel_folder_id = get_or_create_folder(drive, channel_name, root_folder_id)
+
+        # 2. إنشاء أو جلب مجلد قائمة التشغيل (Playlist) داخل مجلد القناة
         playlist_folder_id = get_or_create_folder(drive, playlist_name, channel_folder_id)
 
         file_name = os.path.basename(file_path)
@@ -113,6 +116,7 @@ if st.button("بدء المعالجة، التحميل والرفع المنظم
         output_dir = "downloads"
         os.makedirs(output_dir, exist_ok=True)
 
+        # أمر استخراج اسم القناة واسم القائمة أولاً عبر yt-dlp
         st.info("جاري استخراج بيانات القناة وقائمة التشغيل...")
         info_cmd = ["yt-dlp", "--print", "%(channel)s|||%(playlist_title)s", "--no-download"]
         if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
@@ -129,32 +133,29 @@ if st.button("بدء المعالجة، التحميل والرفع المنظم
             channel_name = "قناة عامة"
             playlist_name = "فيديوهات فردية"
 
+        # تنظيف أسماء المجلدات من الحروف الممنوعة في نظام الملفات
         channel_name = "".join(c for c in channel_name if c.isalnum() or c in (' ', '-', '_')).strip()
         playlist_name = "".join(c for c in playlist_name if c.isalnum() or c in (' ', '-', '_')).strip()
 
         cmd = [
             "yt-dlp",
+            # تفعيل جلب حزم فك التشفير ومحرك Deno الأساسي لحل ألغاز n-challenge
             "--remote-components", "ejs:github",
-            # طلب أفضل جودة فيديو وصوت متاحة دون الوقوع في فخ الفيديوهات المعطوبة
-            "-f", "bv+ba/b",
+            # أولوية أعلى دقة فيديو + مسار الصوت العربي
+            "-f", "bv*+ba[language^=ar]/bv*+ba/b",
+            # التغليف النهائي داخل حاوية Matroska (MKV)
             "--merge-output-format", "mkv",
-            # استخدام عميل mweb لتجاوز قيود SABR وحظر 403 نهائياً
-            "--extractor-args", "youtube:player_client=mweb,android",
-            # إعدادات المحاولات لضمان استقرار التحميل
-            "--retries", "30",
-            "--fragment-retries", "30",
-            "--retry-sleep", "fragment:exp=1:5",
-            "--skip-unavailable-fragments",
-            "--socket-timeout", "60",
-            # البيانات والأرشفة
+            # الأرشفة والبيانات الوصفية
             "--embed-metadata",
             "--embed-chapters",
             "--embed-thumbnail",
             "--embed-subs",
             "--sub-langs", "ar,en",
             "--sub-format", "srt/ass/best",
+            # توافقية مسارات نظام ويندوز
             "--windows-filenames",
             "--trim-filenames", "200",
+            # تنظيف ملفات الـ JSON المؤقتة
             "--clean-info-json",
             "-o", f"{output_dir}/%(title)s.%(ext)s"
         ]
