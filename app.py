@@ -37,8 +37,8 @@ def prepare_js_engine():
 
 prepare_js_engine()
 
-# 2. حقن الكوكيز تلقائياً من Streamlit Secrets
-cookie_path = "session_cookies.txt"
+# 2. حقن الكوكيز تلقائياً من Streamlit Secrets مع المسار المطلق لضمان قراءتها
+cookie_path = os.path.join(os.getcwd(), "session_cookies.txt")
 if "YOUTUBE_COOKIES" in st.secrets:
     with open(cookie_path, "w", encoding="utf-8") as f:
         f.write(st.secrets["YOUTUBE_COOKIES"])
@@ -116,12 +116,12 @@ if st.button("بدء المعالجة، التحميل والرفع المنظم
         output_dir = "downloads"
         os.makedirs(output_dir, exist_ok=True)
 
-        # أمر استخراج اسم القناة واسم القائمة أولاً عبر yt-dlp مع تجاوز تدقيق قوائم التشغيل
+        # أمر استخراج اسم القناة واسم القائمة أولاً عبر yt-dlp مع تفعيل الكوكيز وتجاوز التدقيق
         st.info("جاري استخراج بيانات القناة وقائمة التشغيل...")
-        info_cmd = ["yt-dlp", "--extractor-args", "youtubetab:skip=authcheck", "--print", "%(channel)s|||%(playlist_title)s", "--no-download"]
+        info_cmd = ["yt-dlp", "--extractor-args", "youtubetab:skip=authcheck"]
         if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
             info_cmd.extend(["--cookies", cookie_path])
-        info_cmd.append(url.strip())
+        info_cmd.extend(["--print", "%(channel)s|||%(playlist_title)s", "--no-download", url.strip()])
 
         try:
             res = subprocess.run(info_cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -143,8 +143,8 @@ if st.button("بدء المعالجة، التحميل والرفع المنظم
             "--remote-components", "ejs:github",
             # حل مشكلة HTTP 429 وتجاوز تدقيق المصادقة للقوائم
             "--extractor-args", "youtubetab:skip=authcheck",
-            # تقييد معدل الطلبات لتفادي حظر 429
-            "--sleep-requests", "2",
+            # تقييد معدل الطلبات لتفادي حظر البوتات
+            "--sleep-requests", "3",
             # أولوية أعلى دقة فيديو + مسار الصوت العربي
             "-f", "bv*+ba[language^=ar]/bv*+ba/b",
             # التغليف النهائي داخل حاوية Matroska (MKV)
