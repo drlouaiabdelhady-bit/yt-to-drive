@@ -11,8 +11,8 @@ from pydrive2.drive import GoogleDrive
 
 st.set_page_config(page_title="YouTube MKV Archiver & Drive", layout="centered")
 
-st.title("أرشفة يوتيوب إلى Matroska (MKV) والرفع السحابي")
-st.caption("بروفايل أرشفة متكامل: أعلى دقة | فصول | ترجمات | غلاف | رفع تلقائي لـ Google Drive")
+st.title("أرشفة يوتيوب إلى Matroska (MKV) والرفع السحابي المنظم")
+st.caption("بروفايل أرشفة متكامل: أعلى دقة | فصول | ترجمات | غلاف | تنظيم تلقائي للمجلدات في Google Drive")
 
 # 1. تجهيز محرك Deno السحابي تلقائياً لحل تحديات التشفير (n-challenge)
 @st.cache_resource
@@ -43,8 +43,24 @@ if "YOUTUBE_COOKIES" in st.secrets:
     with open(cookie_path, "w", encoding="utf-8") as f:
         f.write(st.secrets["YOUTUBE_COOKIES"])
 
-# دالة الرفع إلى Google Drive باستخدام PyDrive2
-def upload_to_gdrive(file_path):
+# دالة مساعدة للبحث عن مجلد أو إنشائه في Google Drive
+def get_or_create_folder(drive, folder_name, parent_id):
+    query = f"title='{folder_name}' and '{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    folder_list = drive.ListFile({'q': query}).GetList()
+    if folder_list:
+        return folder_list[0]['id']
+    else:
+        folder_metadata = {
+            'title': folder_name,
+            'mimeType': 'application/vnd.google-apps.folder',
+            'parents': [{'id': parent_id}]
+        }
+        folder = drive.CreateFile(folder_metadata)
+        folder.Upload()
+        return folder['id']
+
+# دالة الرفع المنظم إلى Google Drive بناءً على اسم القناة وقائمة التشغيل
+def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
     try:
         if "GDRIVE_KEY" not in st.secrets or "GDRIVE_FOLDER_ID" not in st.secrets:
             st.error("بيانات Google Drive غير مكتملة في Streamlit Secrets.")
@@ -55,7 +71,7 @@ def upload_to_gdrive(file_path):
         with open(temp_creds_path, "w", encoding="utf-8") as f:
             json.dump(creds_dict, f)
 
-        folder_id = st.secrets["GDRIVE_FOLDER_ID"]
+        root_folder_id = st.secrets["GDRIVE_FOLDER_ID"]
 
         gauth = GoogleAuth()
         gauth.settings = {
@@ -67,12 +83,18 @@ def upload_to_gdrive(file_path):
         gauth.ServiceAuth()
         drive = GoogleDrive(gauth)
 
+        # 1. إنشاء أو جلب مجلد القناة داخل المجلد الرئيسي
+        channel_folder_id = get_or_create_folder(drive, channel_name, root_folder_id)
+
+        # 2. إنشاء أو جلب مجلد قائمة التشغيل (Playlist) داخل مجلد القناة
+        playlist_folder_id = get_or_create_folder(drive, playlist_name, channel_folder_id)
+
         file_name = os.path.basename(file_path)
-        st.info(f"جاري رفع الملف `{file_name}` إلى Google Drive...")
+        st.info(f"جاري رفع الملف `{file_name}` إلى مجلد القناة ({channel_name}) -> قائمة ({playlist_name})...")
         
         gfile = drive.CreateFile({
             'title': file_name,
-            'parents': [{'id': folder_id}]
+            'parents': [{'id': playlist_folder_id}]
         })
         gfile.SetContentFile(file_path)
         gfile.Upload()
@@ -82,32 +104,50 @@ def upload_to_gdrive(file_path):
 
         return True
     except Exception as e:
-        st.error(f"حدث خطأ أثناء الرفع إلى Google Drive: {e}")
+        st.error(f"حدث خطأ أثناء الرفع المنظم إلى Google Drive: {e}")
         return False
 
 url = st.text_input("رابط الفيديو أو قائمة التشغيل:", placeholder="https://www.youtube.com/watch?v=...")
 
-if st.button("بدء المعالجة، التحميل والرفع", type="primary"):
+if st.button("بدء المعالجة، التحميل والرفع المنظم", type="primary"):
     if not url.strip():
         st.warning("يرجى إدخال رابط صالح.")
     else:
         output_dir = "downloads"
         os.makedirs(output_dir, exist_ok=True)
 
+        # أمر استخراج اسم القناة واسم القائمة أولاً عبر yt-dlp
+        st.info("جاري استخراج بيانات القناة وقائمة التشغيل...")
+        info_cmd = ["yt-dlp", "--print", "%(channel)s|||%(playlist_title)s", "--no-download"]
+        if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
+            info_cmd.extend(["--cookies", cookie_path])
+        info_cmd.append(url.strip())
+
+        try:
+            res = subprocess.run(info_cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            lines = res.stdout.strip().split("\n")
+            meta_parts = lines[0].split("|||") if lines and lines[0] else ["قناة عامة", "فيديوهات فردية"]
+            channel_name = meta_parts[0].strip() if len(meta_parts) > 0 and meta_parts[0].strip() else "قناة عامة"
+            playlist_name = meta_parts[1].strip() if len(meta_parts) > 1 and meta_parts[1].strip() != "NA" else "فيديوهات فردية"
+        except Exception:
+            channel_name = "قناة عامة"
+            playlist_name = "فيديوهات فردية"
+
+        # تنظيف أسماء المجلدات من الحروف الممنوعة في نظام الملفات
+        channel_name = "".join(c for c in channel_name if c.isalnum() or c in (' ', '-', '_')).strip()
+        playlist_name = "".join(c for c in playlist_name if c.isalnum() or c in (' ', '-', '_')).strip()
+
         cmd = [
             "yt-dlp",
             "--remote-components", "ejs:github",
-            # أولوية أعلى دقة فيديو + مسار الصوت العربي
             "-f", "bv*+ba[language^=ar]/bv*+ba/b",
-            # التغليف النهائي داخل حاوية Matroska (MKV)
             "--merge-output-format", "mkv",
-            # إدارة أخطاء الـ Fragments وإعادة المحاولة لتفادي الحظر المؤقت
-            "--retries", "20",
-            "--fragment-retries", "20",
+            "--downloader", "native",
+            "--retries", "30",
+            "--fragment-retries", "30",
             "--retry-sleep", "fragment:exp=1:5",
             "--skip-unavailable-fragments",
-            "--socket-timeout", "30",
-            # الأرشفة والبيانات الوصفية
+            "--socket-timeout", "60",
             "--embed-metadata",
             "--embed-chapters",
             "--embed-thumbnail",
@@ -125,7 +165,7 @@ if st.button("بدء المعالجة، التحميل والرفع", type="prim
 
         cmd.append(url.strip())
 
-        st.info("بدأت معالجة المقطع وسحب المسارات...")
+        st.info(f"بدأت معالجة المقطع وسحب المسارات للقناة: [{channel_name}]...")
         
         terminal_box = st.empty()
         log_lines = []
@@ -150,9 +190,9 @@ if st.button("بدء المعالجة، التحميل والرفع", type="prim
             mkv_files = glob.glob(f"{output_dir}/*.mkv")
             if mkv_files:
                 for f in mkv_files:
-                    success = upload_to_gdrive(f)
+                    success = upload_to_organized_gdrive(f, channel_name, playlist_name)
                     if success:
-                        st.success("تم رفع الملف بنجاح إلى مجلد Google Drive المحدد!")
+                        st.success(f"تم رفع الملف بنجاح وترتيبه داخل Google Drive تحت: {channel_name} / {playlist_name}!")
                         os.remove(f)
                         st.info("تم تنظيف السيرفر السحابي وحذف النسخة المحلية بنجاح.")
         else:
