@@ -8,7 +8,7 @@ st.set_page_config(page_title="YouTube MKV Archiver", layout="centered")
 st.title("أرشفة يوتيوب إلى Matroska (MKV)")
 st.caption("بروفايل أرشفة متكامل: أعلى دقة صوت وصورة | فصول | ترجمات | غلاف | بيانات وصفية")
 
-# إنشاء ملف الكوكيز أوتوماتيكياً من إعدادات Streamlit Secrets
+# حقن الكوكيز تلقائياً من Streamlit Secrets في ملف مؤقت
 cookie_path = "session_cookies.txt"
 if "YOUTUBE_COOKIES" in st.secrets:
     with open(cookie_path, "w", encoding="utf-8") as f:
@@ -25,29 +25,33 @@ if st.button("بدء المعالجة والتنزيل", type="primary"):
 
         cmd = [
             "yt-dlp",
+            # تفعيل محرك Node.js لحل تحديات التشفير البرمجية
+            "--js-runtimes", "node",
             # أولوية أعلى دقة فيديو + مسار الصوت العربي (أو أفضل صوت متاح كبديل)
             "-f", "bv*+ba[language^=ar]/bv*+ba/b",
-            # التغليف النهائي داخل حاوية MKV
+            # التغليف النهائي داخل حاوية Matroska (MKV)
             "--merge-output-format", "mkv",
-            # الأرشفة والبيانات الوصفية
+            # الأرشفة وحقن البيانات الوصفية
             "--embed-metadata",
+            # دمج الفصول الزمنية لتسهيل التنقل بالريموت
             "--embed-chapters",
+            # دمج غلاف اليوتيوب كأيقونة للملف
             "--embed-thumbnail",
-            # منظومة الترجمة الذكية
+            # منظومة الترجمة الذكية (دمج Soft-subs وحذف الملفات الخارجية)
             "--embed-subs",
             "--sub-langs", "ar,en",
             "--sub-format", "srt/ass/best",
-            # توافقية مسارات وأسماء نظام ويندوز
+            # توافقية مسارات نظام ويندوز وتفادي رسائل الخطأ
             "--windows-filenames",
             "--trim-filenames", "200",
-            # تنظيف المخلفات المؤقتة
+            # تنظيف ملفات الـ JSON المؤقتة بعد المعالجة
             "--clean-info-json",
             # مسار وتسمية المخرجات
             "-o", f"{output_dir}/%(title)s.%(ext)s"
         ]
 
-        # تمرير الكوكيز أوتوماتيكياً إذا وُجد الملف
-        if os.path.exists(cookie_path):
+        # تمرير الكوكيز تلقائياً إذا كانت موجودة في Secrets
+        if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
             cmd.extend(["--cookies", cookie_path])
 
         cmd.append(url.strip())
