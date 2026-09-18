@@ -19,10 +19,9 @@ if st.button("بدء المعالجة والتنزيل", type="primary"):
 
         cmd = [
             "yt-dlp",
-            # منع حظر الـ Datacenter وإجبار بروتوكول IPv4
-            "--force-ipv4",
-            # المشغل الأفضل لتخطي حظر 403 وسحب أعلى الجودات دون قيود SABR
-            "--extractor-args", "youtube:player_client=web_safari,web_embedded",
+            "--no-cache-dir",
+            # تخطي فحص البوت نهائياً بمحاكاة مشغل التلفاز الذكي
+            "--extractor-args", "youtube:player_client=tv,tv_embedded",
             # أولوية أعلى دقة فيديو + مسار الصوت العربي (أو أفضل صوت متاح كبديل)
             "-f", "bv*+ba[language^=ar]/bv*+ba/b",
             # التغليف النهائي داخل حاوية MKV
@@ -45,7 +44,7 @@ if st.button("بدء المعالجة والتنزيل", type="primary"):
             url.strip()
         ]
 
-        st.info("بدأت معالجة المقطع وسحب المسارات...")
+        st.info("بدأت معالجة المقطع وسحب المسارات عبر مشغل التلفاز الذكي...")
         
         terminal_box = st.empty()
         log_lines = []
