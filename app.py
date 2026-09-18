@@ -140,14 +140,18 @@ if st.button("بدء المعالجة، التحميل والرفع المنظم
         cmd = [
             "yt-dlp",
             "--remote-components", "ejs:github",
-            "-f", "bv*+ba[language^=ar]/bv*+ba/b",
+            # استخدام تنسيق مرن لتجنب قيود HLS الحصرية
+            "-f", "b/bv+ba",
             "--merge-output-format", "mkv",
-            "--downloader", "native",
-            "--retries", "30",
-            "--fragment-retries", "30",
-            "--retry-sleep", "fragment:exp=1:5",
+            # إعدادات المحاولات والمهلات المرتفعة لتفادي أخطاء 403 الأجزاء
+            "--retries", "50",
+            "--fragment-retries", "50",
+            "--retry-sleep", "fragment:exp=1:10",
             "--skip-unavailable-fragments",
-            "--socket-timeout", "60",
+            "--socket-timeout", "90",
+            # محاكاة متصفح ويب حقيقي
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            # الأرشفة والبيانات الوصفية
             "--embed-metadata",
             "--embed-chapters",
             "--embed-thumbnail",
