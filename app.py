@@ -8,6 +8,12 @@ st.set_page_config(page_title="YouTube MKV Archiver", layout="centered")
 st.title("أرشفة يوتيوب إلى Matroska (MKV)")
 st.caption("بروفايل أرشفة متكامل: أعلى دقة صوت وصورة | فصول | ترجمات | غلاف | بيانات وصفية")
 
+# إنشاء ملف الكوكيز أوتوماتيكياً من إعدادات Streamlit Secrets
+cookie_path = "session_cookies.txt"
+if "YOUTUBE_COOKIES" in st.secrets:
+    with open(cookie_path, "w", encoding="utf-8") as f:
+        f.write(st.secrets["YOUTUBE_COOKIES"])
+
 url = st.text_input("رابط الفيديو أو قائمة التشغيل:", placeholder="https://www.youtube.com/watch?v=...")
 
 if st.button("بدء المعالجة والتنزيل", type="primary"):
@@ -19,9 +25,6 @@ if st.button("بدء المعالجة والتنزيل", type="primary"):
 
         cmd = [
             "yt-dlp",
-            "--no-cache-dir",
-            # تخطي فحص البوت نهائياً بمحاكاة مشغل التلفاز الذكي
-            "--extractor-args", "youtube:player_client=tv,tv_embedded",
             # أولوية أعلى دقة فيديو + مسار الصوت العربي (أو أفضل صوت متاح كبديل)
             "-f", "bv*+ba[language^=ar]/bv*+ba/b",
             # التغليف النهائي داخل حاوية MKV
@@ -40,11 +43,16 @@ if st.button("بدء المعالجة والتنزيل", type="primary"):
             # تنظيف المخلفات المؤقتة
             "--clean-info-json",
             # مسار وتسمية المخرجات
-            "-o", f"{output_dir}/%(title)s.%(ext)s",
-            url.strip()
+            "-o", f"{output_dir}/%(title)s.%(ext)s"
         ]
 
-        st.info("بدأت معالجة المقطع وسحب المسارات عبر مشغل التلفاز الذكي...")
+        # تمرير الكوكيز أوتوماتيكياً إذا وُجد الملف
+        if os.path.exists(cookie_path):
+            cmd.extend(["--cookies", cookie_path])
+
+        cmd.append(url.strip())
+
+        st.info("بدأت معالجة المقطع وسحب المسارات...")
         
         terminal_box = st.empty()
         log_lines = []
