@@ -19,8 +19,10 @@ if st.button("بدء المعالجة والتنزيل", type="primary"):
 
         cmd = [
             "yt-dlp",
-            # تخطي حظر 403 عبر محاكاة تطبيق الجوال
-            "--extractor-args", "youtube:player_client=ios,android",
+            # منع حظر الـ Datacenter وإجبار بروتوكول IPv4
+            "--force-ipv4",
+            # المشغل الأفضل لتخطي حظر 403 وسحب أعلى الجودات دون قيود SABR
+            "--extractor-args", "youtube:player_client=web_safari,web_embedded",
             # أولوية أعلى دقة فيديو + مسار الصوت العربي (أو أفضل صوت متاح كبديل)
             "-f", "bv*+ba[language^=ar]/bv*+ba/b",
             # التغليف النهائي داخل حاوية MKV
