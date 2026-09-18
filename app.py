@@ -37,7 +37,7 @@ def prepare_js_engine():
 
 prepare_js_engine()
 
-# 2. حقن الكوكيز تلقائياً من Streamlit Secrets مع المسار المطلق لضمان قراءتها
+# 2. حقن الكوكيز تلقائياً من Streamlit Secrets مع المسار المطلق
 cookie_path = os.path.join(os.getcwd(), "session_cookies.txt")
 if "YOUTUBE_COOKIES" in st.secrets:
     with open(cookie_path, "w", encoding="utf-8") as f:
@@ -83,10 +83,7 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
         gauth.ServiceAuth()
         drive = GoogleDrive(gauth)
 
-        # 1. إنشاء أو جلب مجلد القناة داخل المجلد الرئيسي
         channel_folder_id = get_or_create_folder(drive, channel_name, root_folder_id)
-
-        # 2. إنشاء أو جلب مجلد قائمة التشغيل (Playlist) داخل مجلد القناة
         playlist_folder_id = get_or_create_folder(drive, playlist_name, channel_folder_id)
 
         file_name = os.path.basename(file_path)
@@ -116,8 +113,7 @@ if st.button("بدء المعالجة، التحميل والرفع المنظم
         output_dir = "downloads"
         os.makedirs(output_dir, exist_ok=True)
 
-        # أمر استخراج اسم القناة واسم القائمة أولاً عبر yt-dlp مع تفعيل الكوكيز وتجاوز التدقيق
-        st.info("جاري استخراج بيانات القناة وقائمة التشغيل...")
+        st.info("جاري استخراج بيانات القناة وقائمة التشغيل بحذر لتجنب حظر يوتيوب...")
         info_cmd = ["yt-dlp", "--extractor-args", "youtubetab:skip=authcheck"]
         if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
             info_cmd.extend(["--cookies", cookie_path])
@@ -133,21 +129,22 @@ if st.button("بدء المعالجة، التحميل والرفع المنظم
             channel_name = "قناة عامة"
             playlist_name = "فيديوهات فردية"
 
-        # تنظيف أسماء المجلدات من الحروف الممنوعة في نظام الملفات
         channel_name = "".join(c for c in channel_name if c.isalnum() or c in (' ', '-', '_')).strip()
         playlist_name = "".join(c for c in playlist_name if c.isalnum() or c in (' ', '-', '_')).strip()
 
         cmd = [
             "yt-dlp",
-            # تفعيل جلب حزم فك التشفير ومحرك Deno الأساسي لحل ألغاز n-challenge
+            # محرك Deno وفك التشفير
             "--remote-components", "ejs:github",
-            # حل مشكلة HTTP 429 وتجاوز تدقيق المصادقة للقوائم
-            "--extractor-args", "youtubetab:skip=authcheck",
-            # تقييد معدل الطلبات لتفادي حظر البوتات
-            "--sleep-requests", "3",
-            # أولوية أعلى دقة فيديو + مسار الصوت العربي
+            # تجاوز تدقيق قوائم التشغيل وحظر البوتات
+            "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=web",
+            # إبطاء الطلبات بقوة لمنع خطأ 429 Too Many Requests
+            "--sleep-requests", "5",
+            "--sleep-interval", "5",
+            # تخطي الفيديوهات غير المتاحة أو التي تتطلب تسجيل دخول بدلاً من توقف البرنامج
+            "--ignore-errors",
+            # أولوية الجودة
             "-f", "bv*+ba[language^=ar]/bv*+ba/b",
-            # التغليف النهائي داخل حاوية Matroska (MKV)
             "--merge-output-format", "mkv",
             # الأرشفة والبيانات الوصفية
             "--embed-metadata",
@@ -156,10 +153,8 @@ if st.button("بدء المعالجة، التحميل والرفع المنظم
             "--embed-subs",
             "--sub-langs", "ar,en",
             "--sub-format", "srt/ass/best",
-            # توافقية مسارات نظام ويندوز
             "--windows-filenames",
             "--trim-filenames", "200",
-            # تنظيف ملفات الـ JSON المؤقتة
             "--clean-info-json",
             "-o", f"{output_dir}/%(title)s.%(ext)s"
         ]
@@ -189,15 +184,15 @@ if st.button("بدء المعالجة، التحميل والرفع المنظم
 
         process.wait()
 
-        if process.returncode == 0:
-            st.success("اكتمل التحميل والدمج وتطبيق بروفايل الأرشفة بنجاح!")
-            mkv_files = glob.glob(f"{output_dir}/*.mkv")
-            if mkv_files:
-                for f in mkv_files:
-                    success = upload_to_organized_gdrive(f, channel_name, playlist_name)
-                    if success:
-                        st.success(f"تم رفع الملف بنجاح وترتيبه داخل Google Drive تحت: {channel_name} / {playlist_name}!")
-                        os.remove(f)
-                        st.info("تم تنظيف السيرفر السحابي وحذف النسخة المحلية بنجاح.")
+        # تفقد ومعالجة الملفات المحملة تباعاً
+        mkv_files = glob.glob(f"{output_dir}/*.mkv")
+        if mkv_files:
+            st.success("تم إتمام دفعة التحميل والدمج بنجاح!")
+            for f in mkv_files:
+                success = upload_to_organized_gdrive(f, channel_name, playlist_name)
+                if success:
+                    st.success(f"تم رفع الملف وترتيبه في Google Drive: {channel_name} / {playlist_name}!")
+                    os.remove(f)
+            st.info("تم تنظيف السيرفر المحلي وتفريغ المساحة بنجاح.")
         else:
-            st.error("حدث خطأ أثناء تنفيذ الأمر عبر yt-dlp.")
+            st.warning("انتهت العملية، يرجى مراجعة السجلات أعلاه في حال وجود قيود مؤقتة من يوتيوب.")
