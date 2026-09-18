@@ -2,13 +2,39 @@ import streamlit as st
 import subprocess
 import glob
 import os
+import shutil
+import urllib.request
+import zipfile
 
 st.set_page_config(page_title="YouTube MKV Archiver", layout="centered")
 
 st.title("أرشفة يوتيوب إلى Matroska (MKV)")
 st.caption("بروفايل أرشفة متكامل: أعلى دقة صوت وصورة | فصول | ترجمات | غلاف | بيانات وصفية")
 
-# حقن الكوكيز تلقائياً من Streamlit Secrets
+# 1. تجهيز محرك Deno السحابي تلقائياً لحل تحديات التشفير (n-challenge)
+@st.cache_resource
+def prepare_js_engine():
+    deno_bin = os.path.join(os.getcwd(), "deno")
+    if not shutil.which("deno") and not os.path.exists(deno_bin):
+        try:
+            url = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip"
+            zip_path = os.path.join(os.getcwd(), "deno.zip")
+            urllib.request.urlretrieve(url, zip_path)
+            with zipfile.ZipFile(zip_path, "r") as z:
+                z.extractall(os.getcwd())
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+            os.chmod(deno_bin, 0o755)
+        except Exception as e:
+            pass
+
+    if os.path.exists(deno_bin):
+        if os.getcwd() not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = f"{os.getcwd()}:{os.environ.get('PATH', '')}"
+
+prepare_js_engine()
+
+# 2. حقن الكوكيز تلقائياً من Streamlit Secrets
 cookie_path = "session_cookies.txt"
 if "YOUTUBE_COOKIES" in st.secrets:
     with open(cookie_path, "w", encoding="utf-8") as f:
@@ -25,27 +51,26 @@ if st.button("بدء المعالجة والتنزيل", type="primary"):
 
         cmd = [
             "yt-dlp",
-            # تفعيل محرك Node.js وحزمة فك تشفير التحديات
-            "--js-runtimes", "node",
+            # تفعيل جلب حزم فك التشفير عبر GitHub ومحرك Deno
             "--remote-components", "ejs:github",
             # أولوية أعلى دقة فيديو + مسار الصوت العربي (أو أفضل صوت متاح كبديل)
             "-f", "bv*+ba[language^=ar]/bv*+ba/b",
             # التغليف النهائي داخل حاوية Matroska (MKV)
             "--merge-output-format", "mkv",
-            # الأرشفة وحقن البيانات الوصفية
+            # الأرشفة والبيانات الوصفية
             "--embed-metadata",
-            # دمج الفصول الزمنية
+            # دمج الفصول الزمنية لتسهيل التنقل بالريموت
             "--embed-chapters",
-            # دمج الغلاف كأيقونة
+            # دمج الغلاف الرسمي كأيقونة
             "--embed-thumbnail",
-            # دمج الترجمة العربية والإنجليزية soft-subs وحذف المؤقت
+            # دمج الترجمات العربية والإنجليزية soft-subs وحذف الملفات المؤقتة
             "--embed-subs",
             "--sub-langs", "ar,en",
             "--sub-format", "srt/ass/best",
             # توافقية مسارات نظام ويندوز
             "--windows-filenames",
             "--trim-filenames", "200",
-            # تنظيف المخلفات المؤقتة
+            # تنظيف ملفات الـ JSON المؤقتة
             "--clean-info-json",
             # مسار وتسمية المخرجات
             "-o", f"{output_dir}/%(title)s.%(ext)s"
