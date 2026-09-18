@@ -140,17 +140,18 @@ if st.button("بدء المعالجة، التحميل والرفع المنظم
         cmd = [
             "yt-dlp",
             "--remote-components", "ejs:github",
-            # استخدام تنسيق مرن لتجنب قيود HLS الحصرية
-            "-f", "b/bv+ba",
+            # استخدام أفضل دقة متاحة كملف واحد أو دمج آمن
+            "-f", "bv*+ba/b",
             "--merge-output-format", "mkv",
-            # إعدادات المحاولات والمهلات المرتفعة لتفادي أخطاء 403 الأجزاء
-            "--retries", "50",
-            "--fragment-retries", "50",
-            "--retry-sleep", "fragment:exp=1:10",
+            # تجاوز قيود HLS القسرية واستخدام بروتوكول الأندرويد المحاكي لتفادي 403
+            "--hls-prefer-native",
+            "--extractor-args", "youtube:player_client=android",
+            # إعدادات المحاولات والمهلات المرتفعة لتفادي أخطاء الأجزاء
+            "--retries", "30",
+            "--fragment-retries", "30",
+            "--retry-sleep", "fragment:exp=1:5",
             "--skip-unavailable-fragments",
-            "--socket-timeout", "90",
-            # محاكاة متصفح ويب حقيقي
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "--socket-timeout", "60",
             # الأرشفة والبيانات الوصفية
             "--embed-metadata",
             "--embed-chapters",
