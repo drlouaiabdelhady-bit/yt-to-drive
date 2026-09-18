@@ -1,3 +1,4 @@
 streamlit
-yt-dlp[default]
+yt-dlp
+yt-dlp-ejs
 pydrive2
