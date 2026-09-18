@@ -18,7 +18,10 @@ if st.button("بدء المعالجة والتنزيل", type="primary"):
         os.makedirs(output_dir, exist_ok=True)
 
         cmd = [
+           cmd = [
             "yt-dlp",
+            # تخطي قيود خوادم السحاب بمحاكاة تطبيقات الجوال
+            "--extractor-args", "youtube:player_client=ios,android",
             # أولوية أعلى دقة فيديو + مسار الصوت العربي (أو أفضل صوت متاح كبديل)
             "-f", "bv*+ba[language^=ar]/bv*+ba/b",
             # التغليف النهائي داخل حاوية MKV
@@ -39,6 +42,7 @@ if st.button("بدء المعالجة والتنزيل", type="primary"):
             # مسار وتسمية المخرجات
             "-o", f"{output_dir}/%(title)s.%(ext)s",
             url.strip()
+        ]
         ]
 
         st.info("بدأت معالجة المقطع وسحب المسارات...")
