@@ -8,8 +8,9 @@ import zipfile
 import json
 import time
 import random
-from pydrive2.auth import GoogleAuth
-from pydrive2.drive import GoogleDrive
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
 st.set_page_config(page_title="YouTube MKV Archiver & Drive", layout="centered")
 
@@ -45,26 +46,37 @@ if "YOUTUBE_COOKIES" in st.secrets:
     with open(cookie_path, "w", encoding="utf-8") as f:
         f.write(st.secrets["YOUTUBE_COOKIES"])
 
-# دالة مساعدة للبحث عن مجلد أو إنشائه في Google Drive مع حماية علامات التنصيص
-def get_or_create_folder(drive, folder_name, parent_id):
+# دالة مساعدة للبحث عن مجلد أو إنشائه عبر مكتبة Google Drive الرسمية (v3)
+def get_or_create_folder(drive_service, folder_name, parent_id):
     safe_name = folder_name.replace("'", "\\'")
-    query = f"title='{safe_name}' and '{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-    folder_list = drive.ListFile({'q': query}).GetList()
-    if folder_list:
-        return folder_list[0]['id']
+    query = f"name = '{safe_name}' and '{parent_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    
+    response = drive_service.files().list(
+        q=query,
+        spaces='drive',
+        fields='files(id, name)',
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True
+    ).execute()
+    
+    files = response.get('files', [])
+    if files:
+        return files[0]['id']
     else:
         folder_metadata = {
-            'title': folder_name,
+            'name': folder_name,
             'mimeType': 'application/vnd.google-apps.folder',
-            'parents': [{'id': parent_id}]
+            'parents': [parent_id]
         }
-        folder = drive.CreateFile(folder_metadata)
-        folder.Upload()
-        return folder['id']
+        folder = drive_service.files().create(
+            body=folder_metadata,
+            fields='id',
+            supportsAllDrives=True
+        ).execute()
+        return folder.get('id')
 
-# دالة الرفع المنظم إلى Google Drive مع معالجة فواصل أسطر المفتاح الخاص
+# دالة الرفع المنظم الحديثة والمباشرة دون المرور بـ oauth2client
 def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
-    temp_creds_path = "temp_service_account.json"
     try:
         if "GDRIVE_KEY" not in st.secrets or "GDRIVE_FOLDER_ID" not in st.secrets:
             st.error("بيانات Google Drive غير مكتملة في Streamlit Secrets.")
@@ -84,53 +96,52 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
             st.error("صيغة مفتاح GDRIVE_KEY غير مدعومة.")
             return False
 
-        # معالجة فواصل أسطر المفتاح الخاص لحل خطأ DECODER routines نهائياً
+        # معالجة فواصل أسطر المفتاح لضمان التوافق المطلق مع تشفير Google Auth
         if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
             pk = creds_dict["private_key"]
             while "\\n" in pk:
                 pk = pk.replace("\\n", "\n")
             creds_dict["private_key"] = pk.strip()
 
-        client_email = creds_dict.get("client_email", "")
-        creds_dict["client_user_email"] = client_email
-
-        with open(temp_creds_path, "w", encoding="utf-8") as f:
-            json.dump(creds_dict, f)
+        scopes = ["https://www.googleapis.com/auth/drive"]
+        credentials = service_account.Credentials.from_service_account_info(
+            creds_dict,
+            scopes=scopes
+        )
+        drive_service = build('drive', 'v3', credentials=credentials)
 
         root_folder_id = st.secrets["GDRIVE_FOLDER_ID"]
 
-        gauth = GoogleAuth()
-        gauth.settings = {
-            "client_config_backend": "service",
-            "service_config": {
-                "client_json_file_path": temp_creds_path,
-                "client_user_email": client_email
-            },
-            "oauth_scope": ["https://www.googleapis.com/auth/drive"]
-        }
-        gauth.ServiceAuth()
-        drive = GoogleDrive(gauth)
-
-        channel_folder_id = get_or_create_folder(drive, channel_name, root_folder_id)
-        playlist_folder_id = get_or_create_folder(drive, playlist_name, channel_folder_id)
+        # إنشاء أو جلب المجلدات المنظمة
+        channel_folder_id = get_or_create_folder(drive_service, channel_name, root_folder_id)
+        playlist_folder_id = get_or_create_folder(drive_service, playlist_name, channel_folder_id)
 
         file_name = os.path.basename(file_path)
         st.info(f"جاري رفع `{file_name}` إلى Google Drive...")
+
+        file_metadata = {
+            'name': file_name,
+            'parents': [playlist_folder_id]
+        }
         
-        gfile = drive.CreateFile({
-            'title': file_name,
-            'parents': [{'id': playlist_folder_id}]
-        })
-        gfile.SetContentFile(file_path)
-        gfile.Upload()
+        media = MediaFileUpload(
+            file_path,
+            mimetype='video/x-matroska',
+            resumable=True,
+            chunksize=10 * 1024 * 1024
+        )
+        
+        drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id',
+            supportsAllDrives=True
+        ).execute()
 
         return True
     except Exception as e:
         st.error(f"حدث خطأ أثناء الرفع إلى Google Drive: {e}")
         return False
-    finally:
-        if os.path.exists(temp_creds_path):
-            os.remove(temp_creds_path)
 
 url = st.text_input("رابط الفيديو أو قائمة التشغيل:", placeholder="https://www.youtube.com/watch?v=...")
 
