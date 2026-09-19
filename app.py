@@ -30,7 +30,7 @@ def prepare_js_engine():
             if os.path.exists(zip_path):
                 os.remove(zip_path)
             os.chmod(deno_bin, 0o755)
-        except Exception as e:
+        except Exception:
             pass
 
     if os.path.exists(deno_bin):
@@ -89,7 +89,7 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
         playlist_folder_id = get_or_create_folder(drive, playlist_name, channel_folder_id)
 
         file_name = os.path.basename(file_path)
-        st.info(f"جاري رفع الملف `{file_name}` إلى مجلد القناة ({channel_name}) -> قائمة ({playlist_name})...")
+        st.info(f"جاري رفع الملف `{file_name}` إلى ({channel_name} / {playlist_name})...")
         
         gfile = drive.CreateFile({
             'title': file_name,
@@ -103,7 +103,7 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
 
         return True
     except Exception as e:
-        st.error(f"حدث خطأ أثناء الرفع المنظم إلى Google Drive: {e}")
+        st.error(f"حدث خطأ أثناء الرفع إلى Google Drive: {e}")
         return False
 
 url = st.text_input("رابط الفيديو أو قائمة التشغيل:", placeholder="https://www.youtube.com/watch?v=...")
@@ -115,7 +115,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         output_dir = "downloads"
         os.makedirs(output_dir, exist_ok=True)
 
-        st.info("جاري استخراج روابط القائمة وترتيبها بأمان...")
+        st.info("جاري فحص القائمة واستخراج الروابط...")
         
         list_cmd = ["yt-dlp", "--flat-playlist", "--print", "%(id)s|||%(channel)s|||%(playlist_title)s", "--extractor-args", "youtubetab:skip=authcheck"]
         if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
@@ -149,21 +149,21 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         channel_name = "".join(c for c in channel_name if c.isalnum() or c in (' ', '-', '_')).strip()
         playlist_name = "".join(c for c in playlist_name if c.isalnum() or c in (' ', '-', '_')).strip()
 
-        st.success(f"تم العثور على {len(video_entries)} مقطع. سيتم أرشفتها ورفعها على دفعات آمنة...")
+        st.success(f"تم حصر {len(video_entries)} مقطع بنجاح.")
 
         progress_bar = st.progress(0)
         status_text = st.empty()
+        terminal_box = st.empty()
 
         for idx, vid in enumerate(video_entries):
             target_url = f"https://www.youtube.com/watch?v={vid}" if len(vid) == 11 else vid
-            status_text.text(f"جاري معالجة العنصر {idx + 1} من {len(video_entries)}...")
+            status_text.markdown(f"**معالجة المقطع ({idx + 1} / {len(video_entries)}):** `{target_url}`")
 
             cmd = [
                 "yt-dlp",
                 "--remote-components", "ejs:github",
                 "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=web",
                 "--no-playlist",
-                "--ignore-errors",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
                 "--embed-metadata",
@@ -183,22 +183,37 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             cmd.append(target_url)
 
-            try:
-                subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            # تشغيل العملية وبث السجلات مباشرة للواجهة
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace"
+            )
 
-                mkv_files = glob.glob(f"{output_dir}/*.mkv")
-                if mkv_files:
-                    for f in mkv_files:
-                        success = upload_to_organized_gdrive(f, channel_name, playlist_name)
-                        if success:
-                            os.remove(f)
-            except Exception as e:
-                st.warning(f"تخطي مؤقت للعنصر بسبب خطأ تقني: {e}")
+            log_window = []
+            for line in process.stdout:
+                log_window.append(line)
+                terminal_box.code("".join(log_window[-8:]), language="bash")
+
+            process.wait()
+
+            # التحقق من وجود الملف الناتج ورفعه فوراً
+            mkv_files = glob.glob(f"{output_dir}/*.mkv")
+            if mkv_files:
+                for f in mkv_files:
+                    success = upload_to_organized_gdrive(f, channel_name, playlist_name)
+                    if success:
+                        st.success(f"تم رفع `{os.path.basename(f)}` إلى Drive بنجاح!")
+                        os.remove(f)
+            else:
+                st.error(f"تعذر إنتاج ملف الفيديو للمقطع رقم {idx + 1}. راجع تفاصيل الخطأ في الصندوق أعلاه.")
 
             progress_bar.progress((idx + 1) / len(video_entries))
             
             sleep_time = random.randint(6, 12)
             time.sleep(sleep_time)
 
-        st.success("تم الانتهاء من أرشفتة ورفع القائمة كاملة إلى Google Drive بنجاح تام!")
-        st.info("تم تنظيف السيرفر السحابي بالكامل.")
+        st.success("اكتملت معالجة القائمة بالكامل!")
