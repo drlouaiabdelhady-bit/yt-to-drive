@@ -39,7 +39,7 @@ def prepare_js_engine():
 
 prepare_js_engine()
 
-# 2. حقن الكوكيز تلقائياً من Streamlit Secrets مع المسار المطلق
+# 2. حقن الكوكيز المحدثة تلقائياً من Streamlit Secrets
 cookie_path = os.path.join(os.getcwd(), "session_cookies.txt")
 if "YOUTUBE_COOKIES" in st.secrets:
     with open(cookie_path, "w", encoding="utf-8") as f:
@@ -89,7 +89,7 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
         playlist_folder_id = get_or_create_folder(drive, playlist_name, channel_folder_id)
 
         file_name = os.path.basename(file_path)
-        st.info(f"جاري رفع الملف `{file_name}` إلى ({channel_name} / {playlist_name})...")
+        st.info(f"جاري رفع `{file_name}` إلى Google Drive...")
         
         gfile = drive.CreateFile({
             'title': file_name,
@@ -115,9 +115,14 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         output_dir = "downloads"
         os.makedirs(output_dir, exist_ok=True)
 
-        st.info("جاري فحص القائمة واستخراج الروابط...")
+        st.info("جاري فحص القائمة واستخراج البيانات...")
         
-        list_cmd = ["yt-dlp", "--flat-playlist", "--print", "%(id)s|||%(channel)s|||%(playlist_title)s", "--extractor-args", "youtubetab:skip=authcheck"]
+        list_cmd = [
+            "yt-dlp",
+            "--flat-playlist",
+            "--print", "%(id)s|||%(channel)s|||%(playlist_title)s",
+            "--extractor-args", "youtubetab:skip=authcheck"
+        ]
         if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
             list_cmd.extend(["--cookies", cookie_path])
         list_cmd.append(url.strip())
@@ -149,7 +154,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         channel_name = "".join(c for c in channel_name if c.isalnum() or c in (' ', '-', '_')).strip()
         playlist_name = "".join(c for c in playlist_name if c.isalnum() or c in (' ', '-', '_')).strip()
 
-        st.success(f"تم حصر {len(video_entries)} مقطع بنجاح.")
+        st.success(f"تم العثور على {len(video_entries)} مقطع. تبدأ الأرشفة بالتتابع...")
 
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -162,7 +167,8 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
             cmd = [
                 "yt-dlp",
                 "--remote-components", "ejs:github",
-                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=web",
+                # عميل التلفاز المدمج يتفادى 403 وتدفقات visionos تماماً
+                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=tv_embedded,web",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
@@ -183,7 +189,6 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             cmd.append(target_url)
 
-            # تشغيل العملية وبث السجلات مباشرة للواجهة
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -200,20 +205,21 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             process.wait()
 
-            # التحقق من وجود الملف الناتج ورفعه فوراً
+            # رفع الملف المكتمل فوراً وتفريغ المساحة
             mkv_files = glob.glob(f"{output_dir}/*.mkv")
             if mkv_files:
                 for f in mkv_files:
                     success = upload_to_organized_gdrive(f, channel_name, playlist_name)
                     if success:
-                        st.success(f"تم رفع `{os.path.basename(f)}` إلى Drive بنجاح!")
+                        st.success(f"تم رفع `{os.path.basename(f)}` إلى المجلد بنجاح!")
                         os.remove(f)
             else:
-                st.error(f"تعذر إنتاج ملف الفيديو للمقطع رقم {idx + 1}. راجع تفاصيل الخطأ في الصندوق أعلاه.")
+                st.error(f"تعذر تحميل المقطع رقم {idx + 1}. راجع السجل أعلاه.")
 
             progress_bar.progress((idx + 1) / len(video_entries))
             
+            # فاصل زمني عشوائي لمحاكاة التصفح الطبيعي
             sleep_time = random.randint(6, 12)
             time.sleep(sleep_time)
 
-        st.success("اكتملت معالجة القائمة بالكامل!")
+        st.success("تم الانتهاء من أرشفة كامل القائمة بنجاح!")
