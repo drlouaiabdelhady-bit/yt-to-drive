@@ -273,13 +273,12 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
-            # أمر التحميل مع إلزام الويب وتخطي ملفات m3u8 لمنع خطأ 403
+            # العودة للتكوين الأصلي المجرب والمستقر تماماً (android,tv,mweb) دون أوساخ ملغاة
             cmd = [
                 "yt-dlp",
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
-                "--extractor-args", "youtube:player_client=web",
-                "--youtube-skip-dash-manifest",
+                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=android,tv,mweb",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
