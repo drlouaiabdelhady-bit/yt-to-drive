@@ -274,7 +274,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
             # أمر التحميل مع أولوية AV01 و Opus ودعم التراجع السلس
-           cmd = [
+        cmd = [
                 "yt-dlp",
                 "--remote-components", "ejs:github",
                 # العميل الأصلي المجرب الذي نجح في تحميل ورفع 17 حلقة متتالية
