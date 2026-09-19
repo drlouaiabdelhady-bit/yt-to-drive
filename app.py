@@ -274,14 +274,15 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
             # مشغلات tv و web الرسمية الآمنة لتفادي أخطاء PO-Token و Please sign in
-            cmd = [
+        cmd = [
                 "yt-dlp",
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
                 "--extractor-args", "youtubetab:skip=authcheck",
-                "--extractor-args", "youtube:player_client=default,web_embedded",
+                "--extractor-args", "youtube:player_client=android_creator,web",
                 "--no-playlist",
-                "-f", "bv*+ba[language^=ar]/bv*+ba/b",
+                # الترتيب المحدث بعد حذف (صورة AV1 + صوت Opus بأي لغة):
+                "-f", "bv*[vcodec^=av01]+ba[acodec=opus][language^=ar]/bv*[vcodec^=av01]+ba[language^=ar]/bv*[vcodec^=av01]+ba/bv*+ba[acodec=opus][language^=ar]/bv*+ba[acodec=opus]/bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
                 "--embed-metadata",
                 "--embed-chapters",
