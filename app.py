@@ -84,7 +84,7 @@ def get_or_create_folder(drive_service, folder_name, parent_id):
         return folder.get('id')
 
 def get_existing_drive_filenames(drive_service, folder_id):
-    """جلب قائمة الملفات المرفوعة مسبقاً لتفادي إعادة تحميلها"""
+    """جلب أسماء الملفات المرفوعة مسبقاً لتفادي إعادة التنزيل"""
     try:
         query = f"'{folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
         response = drive_service.files().list(
@@ -97,6 +97,11 @@ def get_existing_drive_filenames(drive_service, folder_id):
         return [f['name'] for f in response.get('files', [])]
     except Exception:
         return []
+
+def normalize_title(name):
+    """تطبيع دقيق للعنوان بمقارنة الأحرف والأرقام وتجاهل الامتدادات والفواصل"""
+    base = os.path.splitext(name)[0]
+    return "".join(c for c in base if c.isalnum()).lower()
 
 def upload_to_organized_gdrive(drive_service, file_path, playlist_folder_id):
     try:
@@ -127,7 +132,7 @@ def upload_to_organized_gdrive(drive_service, file_path, playlist_folder_id):
         st.error(f"حدث خطأ أثناء الرفع إلى Google Drive: {e}")
         return False
 
-# واجهة استخدام عامة ونظيفة
+# واجهة مستخدم نظيفة وموحدة
 url = st.text_input("رابط الفيديو أو قائمة التشغيل:", placeholder="https://www.youtube.com/watch?v=...")
 
 if st.button("بدء الأرشفة المتسلسلة والرفع المنظم", type="primary"):
@@ -137,12 +142,12 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         output_dir = "downloads"
         os.makedirs(output_dir, exist_ok=True)
 
-        st.info("جاري فحص الرابط وبناء الهيكلية...")
+        st.info("جاري فحص الرابط وبناء الهيكلية السحابية...")
         
         drive_service = get_gdrive_service()
         root_folder_id = st.secrets["GDRIVE_FOLDER_ID"]
 
-        # استخراج بيانات القائمة والعناوين
+        # استخراج بيانات القائمة
         list_cmd = [
             "yt-dlp",
             "--force-ipv4",
@@ -180,12 +185,13 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         channel_name = "".join(c for c in channel_name if c.isalnum() or c in (' ', '-', '_')).strip()
         playlist_name = "".join(c for c in playlist_name if c.isalnum() or c in (' ', '-', '_')).strip()
 
-        # تجهيز المجلدات في Google Drive مسبقاً
+        # تجهيز المجلدات في Google Drive
         channel_folder_id = get_or_create_folder(drive_service, channel_name, root_folder_id)
         playlist_folder_id = get_or_create_folder(drive_service, playlist_name, channel_folder_id)
 
-        # فحص الملفات المرفوعة مسبقاً في Drive للاستئناف التلقائي
+        # استعلام الملفات الموجودة حالياً في Drive لتفادي تكرار رفعها
         existing_drive_files = get_existing_drive_filenames(drive_service, playlist_folder_id)
+        existing_normalized = [normalize_title(f) for f in existing_drive_files]
 
         total_videos = len(video_items)
         st.success(f"تم العثور على {total_videos} مقطع. تبدأ الأرشفة الذكية...")
@@ -200,28 +206,21 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
             target_url = f"https://www.youtube.com/watch?v={vid}" if len(vid) == 11 else vid
             current_num = idx + 1
 
-            # تخطي ذكي تلقائي: إذا كان المقطع موجوداً في Drive مسبقاً
-            is_already_uploaded = False
-            if title_hint:
-                # التحقق بمطابقة بداية العنوان
-                short_title = title_hint[:25].strip()
-                if any(short_title in df for df in existing_drive_files):
-                    is_already_uploaded = True
-
-            if is_already_uploaded:
-                status_text.markdown(f"⏭️ **المقطع ({current_num} / {total_videos}):** `{title_hint}` موجود مسبقاً في Drive، تم التخطي.")
+            # التخطي الدقيق: فحص ما إذا كانت هذه الحلقة بعينها قد رُفعت مسبقاً
+            norm_target = normalize_title(title_hint)
+            if norm_target and any(norm_target == en for en in existing_normalized):
+                status_text.markdown(f"⏭️ **المقطع ({current_num} / {total_videos}):** `{title_hint}` مرفوع مسبقاً في Drive، تم التخطي.")
                 progress_bar.progress(current_num / total_videos)
                 continue
 
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
-            # أمر التحميل المباشر الآمن والمعتمد حصراً على مشغل التلفاز
             cmd = [
                 "yt-dlp",
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
-                # عميل التلفاز المدمج فقط (بدون ios وبدون visionos المسببين للـ 403)
-                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=tv_embedded",
+                # مشغل التلفاز والويب المحمول لتجاوز قيود 403 ومنع استدعاء visionos
+                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=tv,mweb",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
@@ -258,14 +257,14 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             process.wait()
 
-            # رفع الملف المكتمل وتفريغ المساحة فوراً
+            # رفع المقطع المكتمل فوراً وتفريغ المساحة
             mkv_files = glob.glob(f"{output_dir}/*.mkv")
             if mkv_files:
                 for f in mkv_files:
                     success = upload_to_organized_gdrive(drive_service, f, playlist_folder_id)
                     if success:
                         st.success(f"تم رفع `{os.path.basename(f)}` بنجاح إلى Drive!")
-                        existing_drive_files.append(os.path.basename(f))
+                        existing_normalized.append(normalize_title(os.path.basename(f)))
                         os.remove(f)
             else:
                 st.error(f"تعذر تحميل المقطع رقم {current_num}. راجع السجل أعلاه.")
