@@ -45,9 +45,10 @@ if "YOUTUBE_COOKIES" in st.secrets:
     with open(cookie_path, "w", encoding="utf-8") as f:
         f.write(st.secrets["YOUTUBE_COOKIES"])
 
-# دالة مساعدة للبحث عن مجلد أو إنشائه في Google Drive
+# دالة مساعدة للبحث عن مجلد أو إنشائه في Google Drive مع حماية علامات التنصيص
 def get_or_create_folder(drive, folder_name, parent_id):
-    query = f"title='{folder_name}' and '{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    safe_name = folder_name.replace("'", "\\'")
+    query = f"title='{safe_name}' and '{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
     folder_list = drive.ListFile({'q': query}).GetList()
     if folder_list:
         return folder_list[0]['id']
@@ -61,7 +62,7 @@ def get_or_create_folder(drive, folder_name, parent_id):
         folder.Upload()
         return folder['id']
 
-# دالة الرفع المنظم إلى Google Drive المعالجة برمجياً
+# دالة الرفع المنظم إلى Google Drive مع تصحيح نطاق الصلاحيات oauth_scope
 def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
     temp_creds_path = "temp_service_account.json"
     try:
@@ -83,7 +84,6 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
             st.error("صيغة مفتاح GDRIVE_KEY غير مدعومة.")
             return False
 
-        # حقن client_user_email تلقائياً لحل متطلبات PyDrive2
         client_email = creds_dict.get("client_email", "")
         creds_dict["client_user_email"] = client_email
 
@@ -92,13 +92,15 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
 
         root_folder_id = st.secrets["GDRIVE_FOLDER_ID"]
 
+        # ضبط إعدادات PyDrive2 مع توفير oauth_scope لتفادي الخطأ
         gauth = GoogleAuth()
         gauth.settings = {
             "client_config_backend": "service",
             "service_config": {
                 "client_json_file_path": temp_creds_path,
                 "client_user_email": client_email
-            }
+            },
+            "oauth_scope": ["https://www.googleapis.com/auth/drive"]
         }
         gauth.ServiceAuth()
         drive = GoogleDrive(gauth)
@@ -235,6 +237,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             progress_bar.progress((idx + 1) / len(video_entries))
             
+            # فاصل زمني عشوائي لمحاكاة التصفح الطبيعي
             sleep_time = random.randint(6, 12)
             time.sleep(sleep_time)
 
