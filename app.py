@@ -277,6 +277,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 "yt-dlp",
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
+                "--extractor-args", "youtube:player_client=android",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
