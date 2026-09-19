@@ -7,6 +7,7 @@ import urllib.request
 import zipfile
 import time
 import random
+import re
 from io import BytesIO
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -90,16 +91,17 @@ def get_or_create_folder(drive_service, folder_name, parent_id):
         ).execute()
         return folder.get('id')
 
-# 4. منظومة إدارة ملف الأرشيف (video_archive.txt) على Google Drive
+# 4. منظومة إدارة ملف الأرشفة القياسي (video_archive.txt)
 ARCHIVE_FILENAME = "video_archive.txt"
 
 def load_archive_from_gdrive(drive_service, root_folder_id):
-    """تحميل ملف video_archive.txt من Drive وقراءة المعرفات"""
+    """تحميل ملف video_archive.txt مع تنظيف الـ BOM الخفي ومطابقة المعرفات بـ Regex"""
     query = f"name = '{ARCHIVE_FILENAME}' and '{root_folder_id}' in parents and trashed = false"
     res = drive_service.files().list(
         q=query,
         spaces='drive',
-        fields='files(id, name)',
+        fields='files(id, name, modifiedTime)',
+        orderBy='modifiedTime desc',
         supportsAllDrives=True,
         includeItemsFromAllDrives=True
     ).execute()
@@ -117,13 +119,16 @@ def load_archive_from_gdrive(drive_service, root_folder_id):
         while not done:
             _, done = downloader.next_chunk()
         fh.seek(0)
-        content = fh.read().decode('utf-8', errors='ignore')
+        content = fh.read().decode('utf-8-sig', errors='ignore')
         with open(ARCHIVE_FILENAME, "w", encoding="utf-8") as f:
             f.write(content)
         for line in content.splitlines():
-            line = line.strip()
-            if line.startswith("youtube "):
-                archived_ids.add(line.split()[1].strip())
+            clean_line = line.strip().lstrip('\ufeff')
+            match = re.search(r'youtube\s+([a-zA-Z0-9_-]{11})', clean_line)
+            if match:
+                archived_ids.add(match.group(1))
+            elif len(clean_line) == 11 and clean_line.isalnum():
+                archived_ids.add(clean_line)
     else:
         with open(ARCHIVE_FILENAME, "w", encoding="utf-8") as f:
             f.write("")
@@ -131,7 +136,7 @@ def load_archive_from_gdrive(drive_service, root_folder_id):
     return archived_ids, drive_archive_id
 
 def append_and_sync_archive(vid_id, drive_service, root_folder_id, drive_archive_id):
-    """إضافة المعرف إلى الأرشيف بعد الرفع الناجح فقط ومزامنته سحابياً"""
+    """إضافة المعرف إلى الأرشيف بعد الرفع الناجح ومزامنته سحابياً"""
     with open(ARCHIVE_FILENAME, "a", encoding="utf-8") as f:
         f.write(f"youtube {vid_id}\n")
     
@@ -195,7 +200,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         output_dir = "downloads"
         os.makedirs(output_dir, exist_ok=True)
 
-        st.info("جاري تحميل أرشيف المعرفات من Google Drive...")
+        st.info("جاري فحص الرابط ومزامنة أرشيف Google Drive...")
         
         drive_service = get_gdrive_service()
         root_folder_id = st.secrets["GDRIVE_FOLDER_ID"]
@@ -260,7 +265,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
             target_url = f"https://www.youtube.com/watch?v={vid}" if len(vid) == 11 else vid
             current_num = idx + 1
 
-            # تخطي فوري للحلقات الـ 18 المسجلة في video_archive.txt
+            # تخطي فوري للحلقات المسجلة في video_archive.txt
             if vid in archived_ids:
                 status_text.markdown(f"⏭️ **المقطع ({current_num} / {total_videos}):** `{title_hint or vid}` مؤكد في الأرشيف، تم التخطي.")
                 progress_bar.progress(current_num / total_videos)
@@ -268,12 +273,13 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
+            # أمر التحميل الخالي تماماً من mweb لتفادي قيود PO Token
             cmd = [
                 "yt-dlp",
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
                 "--extractor-args", "youtubetab:skip=authcheck",
-                "--extractor-args", "youtube:player_client=tv,mweb",
+                "--extractor-args", "youtube:player_client=tv_embedded,web_creator,tv",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
@@ -314,7 +320,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             process.wait()
 
-            # رفع المقطع وتحديث الأرشيف في Drive بعد التأكد من الرفع فقط
+            # رفع المقطع المكتمل وتحديث الأرشيف في Drive
             mkv_files = glob.glob(f"{output_dir}/*.mkv")
             if mkv_files:
                 for f in mkv_files:
