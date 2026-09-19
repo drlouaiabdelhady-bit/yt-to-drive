@@ -1,5 +1,6 @@
 streamlit
 yt-dlp[default] @ https://github.com/yt-dlp/yt-dlp/archive/master.zip
 yt-dlp-ejs
-pydrive2
 bgutil-ytdlp-pot-provider
+google-api-python-client
+google-auth-oauthlib
