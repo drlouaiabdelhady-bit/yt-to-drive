@@ -258,91 +258,111 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         status_text = st.empty()
         terminal_box = st.empty()
 
-        for idx, item in enumerate(video_items):
-            vid = item["id"]
-            title_hint = item["title"]
-            target_url = f"https://www.youtube.com/watch?v={vid}" if len(vid) == 11 else vid
-            current_num = idx + 1
+        CLIENT_PROFILES = [
+    "youtube:player_client=default,web_embedded",
+    "youtube:player_client=web_safari",
+    "youtube:player_client=mweb",
+]
+MAX_ATTEMPTS = 3            # محاولات لكل مقطع (برابط جديد وعميل مختلف)
+MAX_CONSECUTIVE_FAILS = 2   # توقف كامل بعد فشل مقطعين متتاليين
+MAX_NEW_PER_RUN = 8         # عدد المقاطع الجديدة في كل تشغيل
 
-            # تخطي فوري للحلقات المسجلة في video_archive.txt
-            if vid in archived_ids:
-                status_text.markdown(f"⏭️ **المقطع ({current_num} / {total_videos}):** `{title_hint or vid}` مؤكد في الأرشيف، تم التخطي.")
-                progress_bar.progress(current_num / total_videos)
-                continue
+def build_cmd(target_url, client_profile):
+    cmd = [
+        "yt-dlp", "--force-ipv4",
+        "--remote-components", "ejs:github",
+        "--extractor-args", client_profile,
+        "--no-playlist",
+        "-f", "bv*+ba/b",
+        "--merge-output-format", "mkv",
+        "--embed-metadata", "--embed-chapters", "--embed-thumbnail",
+        "--embed-subs", "--sub-langs", "ar,en", "--sub-format", "srt/ass/best",
+        "--windows-filenames", "--trim-filenames", "200",
+        "--clean-info-json",
+        "--limit-rate", "8M",
+        "--retries", "3",
+        "--fragment-retries", "2",          # لا فائدة من تكرار رابط مرفوض
+        "--retry-sleep", "fragment:exp=1:8",
+        "--socket-timeout", "30",
+        "-o", f"{output_dir}/%(title)s.%(ext)s",
+    ]
+    if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
+        cmd.extend(["--cookies", cookie_path])
+    cmd.append(target_url)
+    return cmd
 
-            status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
+def clean_downloads():
+    for leftover in glob.glob(f"{output_dir}/*"):
+        try:
+            os.remove(leftover)
+        except Exception:
+            pass
 
-            # أمر التحميل النظيف الخالي من المعوقات لتجنب خطأ 403
-            cmd = [
-                "yt-dlp",
-                "--force-ipv4",
-                "--remote-components", "ejs:github",
-                # دمج عملاء الويب والتلفاز لضمان توفر تدفقات الفيديو والصوت بوضوح
-                "--extractor-args", "youtube:player_client=default,web_embedded",
-                "--no-playlist",
-                # صيغة مرنة ومباشرة تضمن عدم فشل التحميل مطلقاً
-                "-f", "bv*+ba/b",
-                "--merge-output-format", "mkv",
-                "--embed-metadata",
-                "--embed-chapters",
-                "--embed-thumbnail",
-                "--embed-subs",
-                "--sub-langs", "ar,en",
-                "--sub-format", "srt/ass/best",
-                "--windows-filenames",
-                "--trim-filenames", "200",
-                "--clean-info-json",
-                "--limit-rate", "12M",
-                "--retries", "10",
-                "--fragment-retries", "10",
-                "--retry-sleep", "fragment:exp=1:20",
-                "--socket-timeout", "30",
-                "-o", f"{output_dir}/%(title)s.%(ext)s"
-            ]
+consecutive_fails = 0
+new_done = 0
+stopped_early = False
 
-            if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
-                cmd.extend(["--cookies", cookie_path])
+for idx, item in enumerate(video_items):
+    vid = item["id"]
+    title_hint = item["title"]
+    target_url = f"https://www.youtube.com/watch?v={vid}" if len(vid) == 11 else vid
+    current_num = idx + 1
 
-            cmd.append(target_url)
+    if vid in archived_ids:
+        status_text.markdown(f"⏭️ **({current_num}/{total_videos})** `{title_hint or vid}` مؤكد في الأرشيف، تم التخطي.")
+        progress_bar.progress(current_num / total_videos)
+        continue
 
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace"
-            )
+    if new_done >= MAX_NEW_PER_RUN:
+        st.warning(f"تم بلوغ حد {MAX_NEW_PER_RUN} مقاطع في هذا التشغيل. أعد التشغيل لاحقاً لإكمال الباقي (الأرشيف يحفظ ما تم).")
+        stopped_early = True
+        break
 
-            log_window = []
-            for line in process.stdout:
-                log_window.append(line)
-                terminal_box.code("".join(log_window[-8:]), language="bash")
+    downloaded = False
+    for attempt in range(MAX_ATTEMPTS):
+        clean_downloads()
+        profile = CLIENT_PROFILES[attempt % len(CLIENT_PROFILES)]
+        status_text.markdown(f"⬇️ **({current_num}/{total_videos})** `{target_url}` — المحاولة {attempt+1}/{MAX_ATTEMPTS}")
 
-            process.wait()
+        process = subprocess.Popen(
+            build_cmd(target_url, profile),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace"
+        )
+        log_window = []
+        for line in process.stdout:
+            log_window.append(line)
+            terminal_box.code("".join(log_window[-8:]), language="bash")
+        process.wait()
 
-            # رفع المقطع المكتمل وتحديث الأرشيف في Drive
-            mkv_files = glob.glob(f"{output_dir}/*.mkv")
-            if mkv_files:
-                for f in mkv_files:
-                    success = upload_to_organized_gdrive(drive_service, f, playlist_folder_id)
-                    if success:
-                        st.success(f"تم رفع `{os.path.basename(f)}` بنجاح إلى Drive!")
-                        archived_ids.add(vid)
-                        drive_archive_id = append_and_sync_archive(vid, drive_service, root_folder_id, drive_archive_id)
-                        os.remove(f)
-            else:
-                st.error(f"تعذر تحميل المقطع رقم {current_num}. راجع السجل أعلاه.")
-                for leftover in glob.glob(f"{output_dir}/*"):
-                    try:
-                        os.remove(leftover)
-                    except Exception:
-                        pass
+        if process.returncode == 0 and glob.glob(f"{output_dir}/*.mkv"):
+            downloaded = True
+            break
 
-            progress_bar.progress(current_num / total_videos)
-            
-            # فاصل أمان زمني لمنع تفعيل قيود الحظر
-            sleep_time = random.randint(20, 35)
-            time.sleep(sleep_time)
+        wait = random.randint(60, 120) * (attempt + 1)
+        status_text.markdown(f"⚠️ فشلت المحاولة {attempt+1}. انتظار {wait} ثانية ثم إعادة الاستخراج برابط جديد...")
+        time.sleep(wait)
 
-        st.success("تم الانتهاء من أرشفة كامل المحتوى بنجاح!")
+    if downloaded:
+        consecutive_fails = 0
+        for f in glob.glob(f"{output_dir}/*.mkv"):
+            if upload_to_organized_gdrive(drive_service, f, playlist_folder_id):
+                st.success(f"تم رفع `{os.path.basename(f)}` بنجاح إلى Drive!")
+                archived_ids.add(vid)
+                drive_archive_id = append_and_sync_archive(vid, drive_service, root_folder_id, drive_archive_id)
+                os.remove(f)
+        new_done += 1
+    else:
+        clean_downloads()
+        consecutive_fails += 1
+        st.error(f"تعذر تحميل المقطع رقم {current_num} بعد {MAX_ATTEMPTS} محاولات.")
+        if consecutive_fails >= MAX_CONSECUTIVE_FAILS:
+            st.error("توقف تلقائي: فشل متتالٍ يعني أن الـ IP أو الجلسة محظورة مؤقتاً. أعد التشغيل بعد عدة ساعات.")
+            stopped_early = True
+            break
+
+    progress_bar.progress(current_num / total_videos)
+    time.sleep(random.randint(45, 90))   # فاصل أطول بين المقاطع
+
+if not stopped_early:
+    st.success("تم الانتهاء من أرشفة كامل المحتوى بنجاح!")
