@@ -208,13 +208,12 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         # تحميل المعرفات المعتمدة من video_archive.txt
         archived_ids, drive_archive_id = load_archive_from_gdrive(drive_service, root_folder_id)
 
-        # استخراج بيانات القائمة
+        # استخراج بيانات القائمة بأعلى درجات الاستقرار
         list_cmd = [
             "yt-dlp",
             "--force-ipv4",
             "--flat-playlist",
-            "--print", "%(id)s|||%(channel)s|||%(playlist_title)s|||%(title)s",
-            "--extractor-args", "youtubetab:skip=authcheck"
+            "--print", "%(id)s|||%(channel)s|||%(playlist_title)s|||%(title)s"
         ]
         if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
             list_cmd.extend(["--cookies", cookie_path])
@@ -273,7 +272,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
-            # العودة للتكوين الأصلي المجرب والمستقر تماماً (android,tv,mweb) دون أوساخ ملغاة
+            # أمر التحميل القياسي النظيف والمستقر
             cmd = [
                 "yt-dlp",
                 "--force-ipv4",
