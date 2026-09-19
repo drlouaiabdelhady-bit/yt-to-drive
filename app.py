@@ -133,6 +133,7 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
         st.error(f"حدث خطأ أثناء الرفع إلى Google Drive: {e}")
         return False
 
+# واجهة إدخال عامة وموحدة
 url = st.text_input("رابط الفيديو أو قائمة التشغيل:", placeholder="https://www.youtube.com/watch?v=...")
 
 if st.button("بدء الأرشفة المتسلسلة والرفع المنظم", type="primary"):
@@ -142,7 +143,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         output_dir = "downloads"
         os.makedirs(output_dir, exist_ok=True)
 
-        st.info("جاري فحص القائمة واستخراج البيانات...")
+        st.info("جاري فحص الرابط واستخراج البيانات...")
         
         list_cmd = [
             "yt-dlp",
@@ -181,7 +182,8 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         channel_name = "".join(c for c in channel_name if c.isalnum() or c in (' ', '-', '_')).strip()
         playlist_name = "".join(c for c in playlist_name if c.isalnum() or c in (' ', '-', '_')).strip()
 
-        st.success(f"تم العثور على {len(video_entries)} مقطع. تبدأ الأرشفة بالتتابع...")
+        total_videos = len(video_entries)
+        st.success(f"تم العثور على {total_videos} مقطع. تبدأ الأرشفة بالتتابع...")
 
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -189,12 +191,13 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
         for idx, vid in enumerate(video_entries):
             target_url = f"https://www.youtube.com/watch?v={vid}" if len(vid) == 11 else vid
-            status_text.markdown(f"**معالجة المقطع ({idx + 1} / {len(video_entries)}):** `{target_url}`")
+            status_text.markdown(f"**معالجة المقطع ({idx + 1} / {total_videos}):** `{target_url}`")
 
             cmd = [
                 "yt-dlp",
                 "--remote-components", "ejs:github",
-                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=tv_embedded,web",
+                # انتحال عملاء أندرويد والتلفاز لتجاوز تدقيق الويب وسيرفرات الداتاسنتر وتفادي الـ 403
+                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=android,tv,mweb",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
@@ -207,6 +210,10 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 "--windows-filenames",
                 "--trim-filenames", "200",
                 "--clean-info-json",
+                "--retries", "10",
+                "--fragment-retries", "10",
+                "--retry-sleep", "fragment:exp=1:20",
+                "--socket-timeout", "30",
                 "-o", f"{output_dir}/%(title)s.%(ext)s"
             ]
 
@@ -231,7 +238,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             process.wait()
 
-            # رفع الملف المكتمل فوراً وتفريغ المساحة
+            # رفع الملف المكتمل فوراً وتفريغ مساحة السيرفر
             mkv_files = glob.glob(f"{output_dir}/*.mkv")
             if mkv_files:
                 for f in mkv_files:
@@ -241,10 +248,17 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                         os.remove(f)
             else:
                 st.error(f"تعذر تحميل المقطع رقم {idx + 1}. راجع السجل أعلاه.")
+                # تنظيف أي بقايا مؤقتة تالفة لتفريغ المساحة
+                for leftover in glob.glob(f"{output_dir}/*"):
+                    try:
+                        os.remove(leftover)
+                    except Exception:
+                        pass
 
-            progress_bar.progress((idx + 1) / len(video_entries))
+            progress_bar.progress((idx + 1) / total_videos)
             
-            sleep_time = random.randint(6, 12)
+            # فاصل أمان زمني لتفادي رصد المعدل والـ Rate-limit
+            sleep_time = random.randint(15, 25)
             time.sleep(sleep_time)
 
-        st.success("تم الانتهاء من أرشفة كامل القائمة بنجاح!")
+        st.success("تم الانتهاء من أرشفة كامل المحتوى بنجاح!")
