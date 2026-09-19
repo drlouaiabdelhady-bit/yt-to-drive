@@ -278,7 +278,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
                 # دمج عملاء الويب والتلفاز لضمان توفر تدفقات الفيديو والصوت بوضوح
-                "--extractor-args", "youtube:player_client=web,tv",
+                "--extractor-args", "youtube:player_client=default,web_embedded",
                 "--no-playlist",
                 # صيغة مرنة ومباشرة تضمن عدم فشل التحميل مطلقاً
                 "-f", "bv*+ba/b",
