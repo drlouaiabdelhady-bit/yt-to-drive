@@ -273,11 +273,10 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
-            # أمر التحميل مع أولوية AV01 و Opus ودعم التراجع السلس
-        cmd = [
+            # التكوين الأصلي المجرب والمستقر تماماً
+            cmd = [
                 "yt-dlp",
                 "--remote-components", "ejs:github",
-                # العميل الأصلي المجرب الذي نجح في تحميل ورفع 17 حلقة متتالية
                 "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=android,tv,mweb",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
@@ -297,6 +296,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 "--socket-timeout", "30",
                 "-o", f"{output_dir}/%(title)s.%(ext)s"
             ]
+
             if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
                 cmd.extend(["--cookies", cookie_path])
 
