@@ -273,11 +273,12 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
-            # التكوين الأصلي المجرب والمستقر تماماً
+            # التكوين المستقر المانع لملفات m3u8 والـ 403 مع عملاء الويب والتلفاز المباشرين
             cmd = [
                 "yt-dlp",
+                "--force-ipv4",
                 "--remote-components", "ejs:github",
-                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=android,tv,mweb",
+                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=web,tv",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
