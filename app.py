@@ -279,7 +279,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
                 "--extractor-args", "youtubetab:skip=authcheck",
-                "--extractor-args", "youtube:player_client=tv,web",
+                "--extractor-args", "youtube:player_client=default,web_embedded",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
