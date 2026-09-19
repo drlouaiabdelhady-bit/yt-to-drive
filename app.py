@@ -278,6 +278,9 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
                 "--no-playlist",
+                # إجبار التنزيل المباشر المدمج ومنع تجزئة الأجزاء (Fragments) التي تسبب خطأ 403
+                "--hls-use-mpegts",
+                "--downloader", "native",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
                 "--embed-metadata",
