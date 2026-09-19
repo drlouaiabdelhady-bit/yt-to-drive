@@ -61,15 +61,32 @@ def get_or_create_folder(drive, folder_name, parent_id):
         folder.Upload()
         return folder['id']
 
-# دالة الرفع المنظم إلى Google Drive بناءً على اسم القناة وقائمة التشغيل
+# دالة الرفع المنظم إلى Google Drive المعالجة برمجياً
 def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
+    temp_creds_path = "temp_service_account.json"
     try:
         if "GDRIVE_KEY" not in st.secrets or "GDRIVE_FOLDER_ID" not in st.secrets:
             st.error("بيانات Google Drive غير مكتملة في Streamlit Secrets.")
             return False
 
-        creds_dict = json.loads(st.secrets["GDRIVE_KEY"])
-        temp_creds_path = "temp_service_account.json"
+        raw_key = st.secrets["GDRIVE_KEY"]
+        if isinstance(raw_key, dict) or hasattr(raw_key, "to_dict"):
+            creds_dict = dict(raw_key)
+        elif isinstance(raw_key, str):
+            clean_str = raw_key.strip()
+            start_idx = clean_str.find('{')
+            end_idx = clean_str.rfind('}')
+            if start_idx != -1 and end_idx != -1:
+                clean_str = clean_str[start_idx:end_idx + 1]
+            creds_dict = json.loads(clean_str)
+        else:
+            st.error("صيغة مفتاح GDRIVE_KEY غير مدعومة.")
+            return False
+
+        # حقن client_user_email تلقائياً لحل متطلبات PyDrive2
+        client_email = creds_dict.get("client_email", "")
+        creds_dict["client_user_email"] = client_email
+
         with open(temp_creds_path, "w", encoding="utf-8") as f:
             json.dump(creds_dict, f)
 
@@ -80,6 +97,7 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
             "client_config_backend": "service",
             "service_config": {
                 "client_json_file_path": temp_creds_path,
+                "client_user_email": client_email
             }
         }
         gauth.ServiceAuth()
@@ -98,13 +116,13 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
         gfile.SetContentFile(file_path)
         gfile.Upload()
 
-        if os.path.exists(temp_creds_path):
-            os.remove(temp_creds_path)
-
         return True
     except Exception as e:
         st.error(f"حدث خطأ أثناء الرفع إلى Google Drive: {e}")
         return False
+    finally:
+        if os.path.exists(temp_creds_path):
+            os.remove(temp_creds_path)
 
 url = st.text_input("رابط الفيديو أو قائمة التشغيل:", placeholder="https://www.youtube.com/watch?v=...")
 
@@ -167,7 +185,6 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
             cmd = [
                 "yt-dlp",
                 "--remote-components", "ejs:github",
-                # عميل التلفاز المدمج يتفادى 403 وتدفقات visionos تماماً
                 "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=tv_embedded,web",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
@@ -211,14 +228,13 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 for f in mkv_files:
                     success = upload_to_organized_gdrive(f, channel_name, playlist_name)
                     if success:
-                        st.success(f"تم رفع `{os.path.basename(f)}` إلى المجلد بنجاح!")
+                        st.success(f"تم رفع `{os.path.basename(f)}` بنجاح إلى Drive!")
                         os.remove(f)
             else:
                 st.error(f"تعذر تحميل المقطع رقم {idx + 1}. راجع السجل أعلاه.")
 
             progress_bar.progress((idx + 1) / len(video_entries))
             
-            # فاصل زمني عشوائي لمحاكاة التصفح الطبيعي
             sleep_time = random.randint(6, 12)
             time.sleep(sleep_time)
 
