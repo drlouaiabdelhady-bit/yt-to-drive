@@ -273,12 +273,12 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
-            # التكوين المستقر المانع لملفات m3u8 والـ 403 مع عملاء الويب والتلفاز المباشرين
+            # أمر التحميل مع استخدام عميل الويب الافتراضي لمنع visionos و m3u8 وخطأ 403
             cmd = [
                 "yt-dlp",
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
-                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=web,tv",
+                "--extractor-args", "youtube:player_client=default,web",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
@@ -291,6 +291,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 "--windows-filenames",
                 "--trim-filenames", "200",
                 "--clean-info-json",
+                "--limit-rate", "12M",
                 "--retries", "10",
                 "--fragment-retries", "10",
                 "--retry-sleep", "fragment:exp=1:20",
