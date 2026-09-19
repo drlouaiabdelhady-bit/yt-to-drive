@@ -7,7 +7,6 @@ import urllib.request
 import zipfile
 import time
 import random
-import re
 from io import BytesIO
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -16,9 +15,9 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 st.set_page_config(page_title="YouTube MKV Archiver & Drive", layout="centered")
 
 st.title("أرشفة يوتيوب إلى Matroska (MKV) والرفع السحابي المنظم")
-st.caption("بروفايل أرشفة متكامل: أعلى دقة | فصول | ترجمات | غلاف | استئناف قياسي بملف الأرشيف ID")
+st.caption("بروفايل أرشفة متكامل: أعلى دقة | فصول | ترجمات | غلاف | استئناف قياسي بملف video_archive.txt")
 
-# 1. تجهيز محرك Deno السحابي لحل شفرات التحدي (n-challenge)
+# 1. تجهيز محرك Deno السحابي تلقائياً لحل تحديات التشفير (n-challenge)
 @st.cache_resource
 def prepare_js_engine():
     deno_bin = os.path.join(os.getcwd(), "deno")
@@ -91,12 +90,12 @@ def get_or_create_folder(drive_service, folder_name, parent_id):
         ).execute()
         return folder.get('id')
 
-# 4. منظومة إدارة ملف الأرشيف القياسي (archive.txt) على Google Drive
-LOCAL_ARCHIVE_FILE = "archive.txt"
+# 4. منظومة إدارة ملف الأرشيف القياسي (video_archive.txt) على Google Drive
+ARCHIVE_FILENAME = "video_archive.txt"
 
 def load_archive_from_gdrive(drive_service, root_folder_id):
-    """جلب ملف archive.txt من المجلد الرئيسي في Drive أو إنشاؤه محلياً"""
-    query = f"name = 'archive.txt' and '{root_folder_id}' in parents and trashed = false"
+    """تحميل ملف video_archive.txt من Drive أو إنشاؤه محلياً"""
+    query = f"name = '{ARCHIVE_FILENAME}' and '{root_folder_id}' in parents and trashed = false"
     res = drive_service.files().list(
         q=query,
         spaces='drive',
@@ -119,21 +118,21 @@ def load_archive_from_gdrive(drive_service, root_folder_id):
             _, done = downloader.next_chunk()
         fh.seek(0)
         content = fh.read().decode('utf-8', errors='ignore')
-        with open(LOCAL_ARCHIVE_FILE, "w", encoding="utf-8") as f:
+        with open(ARCHIVE_FILENAME, "w", encoding="utf-8") as f:
             f.write(content)
         for line in content.splitlines():
             line = line.strip()
             if line.startswith("youtube "):
                 archived_ids.add(line.split()[1].strip())
     else:
-        with open(LOCAL_ARCHIVE_FILE, "w", encoding="utf-8") as f:
+        with open(ARCHIVE_FILENAME, "w", encoding="utf-8") as f:
             f.write("")
 
     return archived_ids, drive_archive_id
 
 def sync_archive_to_gdrive(drive_service, root_folder_id, drive_archive_id):
-    """رفع أو تحديث ملف archive.txt في Google Drive فوراً"""
-    media = MediaFileUpload(LOCAL_ARCHIVE_FILE, mimetype='text/plain', resumable=False)
+    """مزامنة ملف video_archive.txt مع Google Drive"""
+    media = MediaFileUpload(ARCHIVE_FILENAME, mimetype='text/plain', resumable=False)
     if drive_archive_id:
         drive_service.files().update(
             fileId=drive_archive_id,
@@ -143,7 +142,7 @@ def sync_archive_to_gdrive(drive_service, root_folder_id, drive_archive_id):
         return drive_archive_id
     else:
         file_metadata = {
-            'name': 'archive.txt',
+            'name': ARCHIVE_FILENAME,
             'parents': [root_folder_id]
         }
         res = drive_service.files().create(
@@ -155,10 +154,30 @@ def sync_archive_to_gdrive(drive_service, root_folder_id, drive_archive_id):
         return res.get('id')
 
 def add_to_archive(vid_id, drive_service, root_folder_id, drive_archive_id):
-    """إضافة معرف الفيديو إلى الأرشيف ومزامنته سحابياً"""
-    with open(LOCAL_ARCHIVE_FILE, "a", encoding="utf-8") as f:
+    """إضافة المعرف إلى الأرشيف ومزامنته سحابياً"""
+    with open(ARCHIVE_FILENAME, "a", encoding="utf-8") as f:
         f.write(f"youtube {vid_id}\n")
     return sync_archive_to_gdrive(drive_service, root_folder_id, drive_archive_id)
+
+def get_all_drive_files(drive_service, folder_id):
+    """جلب كافة الملفات من Drive مع الترقيم الكامل لتجاوز حد الـ 10 ملفات"""
+    all_files = []
+    page_token = None
+    while True:
+        res = drive_service.files().list(
+            q=f"'{folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false",
+            spaces='drive',
+            fields='nextPageToken, files(name)',
+            pageSize=100,
+            pageToken=page_token,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
+        all_files.extend(res.get('files', []))
+        page_token = res.get('nextPageToken')
+        if not page_token:
+            break
+    return all_files
 
 def upload_to_organized_gdrive(drive_service, file_path, playlist_folder_id):
     try:
@@ -204,10 +223,10 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         drive_service = get_gdrive_service()
         root_folder_id = st.secrets["GDRIVE_FOLDER_ID"]
 
-        # تحميل أرشيف المعرفات من Google Drive
+        # تحميل أو تهيئة video_archive.txt
         archived_ids, drive_archive_id = load_archive_from_gdrive(drive_service, root_folder_id)
 
-        # استخراج بيانات القائمة
+        # استخراج بيانات عناصر القائمة
         list_cmd = [
             "yt-dlp",
             "--force-ipv4",
@@ -251,28 +270,29 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         channel_folder_id = get_or_create_folder(drive_service, channel_name, root_folder_id)
         playlist_folder_id = get_or_create_folder(drive_service, playlist_name, channel_folder_id)
 
-        # التوافق التلقائي الأول: إذا كان الأرشيف جديداً وفيه مقاطع مرفوعة مسبقاً، نسجلها فوراً
-        if len(archived_ids) == 0:
-            st.info("فحص الملفات المرفوعة مسبقاً لمزامنتها مع ملف الأرشيف الجديد...")
-            query = f"'{playlist_folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
-            res = drive_service.files().list(q=query, spaces='drive', fields='files(name)').execute()
-            existing_names = [f['name'] for f in res.get('files', [])]
-            
-            for item in video_items:
-                v_title = item["title"]
-                match = re.search(r'الحلقة\s*(\d+)', v_title)
-                ep_num = match.group(1) if match else None
+        # المزامنة الشاملة لجميع الملفات المرفوعة مسبقاً داخل Drive مع video_archive.txt
+        existing_drive_files = get_all_drive_files(drive_service, playlist_folder_id)
+        existing_names = [f['name'] for f in existing_drive_files]
+
+        new_synced = 0
+        for item in video_items:
+            vid = item["id"]
+            if vid not in archived_ids:
+                yt_clean = "".join(c for c in item["title"] if c.isalnum()).lower()
                 for en in existing_names:
-                    if (ep_num and f"الحلقة {ep_num}" in en) or ("تتر البداية" in v_title and "تتر البداية" in en):
-                        archived_ids.add(item["id"])
-                        with open(LOCAL_ARCHIVE_FILE, "a", encoding="utf-8") as f:
-                            f.write(f"youtube {item['id']}\n")
+                    en_clean = "".join(c for c in os.path.splitext(en)[0] if c.isalnum()).lower()
+                    if (yt_clean and (yt_clean in en_clean or en_clean in yt_clean)) or (item["title"] and item["title"][:20] in en):
+                        archived_ids.add(vid)
+                        with open(ARCHIVE_FILENAME, "a", encoding="utf-8") as f:
+                            f.write(f"youtube {vid}\n")
+                        new_synced += 1
                         break
-            
+
+        if new_synced > 0 or not drive_archive_id:
             drive_archive_id = sync_archive_to_gdrive(drive_service, root_folder_id, drive_archive_id)
 
         total_videos = len(video_items)
-        st.success(f"تم فحص القائمة ({total_videos} مقطع). الأرشيف يحتوي على {len(archived_ids)} مقطع مسجل.")
+        st.success(f"تم فحص القائمة ({total_videos} مقطع). الأرشيف يحتوي على {len(archived_ids)} مقطع مؤكد في Drive.")
 
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -284,19 +304,22 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
             target_url = f"https://www.youtube.com/watch?v={vid}" if len(vid) == 11 else vid
             current_num = idx + 1
 
-            # تخطي فوري بنسبة 100% عبر المعرف المسجل
+            # تخطي فوري وآمن بنسبة 100% بدون أي طلب لسيرفرات يوتيوب
             if vid in archived_ids:
-                status_text.markdown(f"⏭️ **المقطع ({current_num} / {total_videos}):** `{title_hint or vid}` مؤرشف مسبقاً، تم التخطي.")
+                status_text.markdown(f"⏭️ **المقطع ({current_num} / {total_videos}):** `{title_hint or vid}` مؤكد في video_archive.txt، تم التخطي.")
                 progress_bar.progress(current_num / total_videos)
                 continue
 
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
+            # أمر التحميل مع فصل وسائط الاستخراج لمنع استدعاء visionos نهائياً
             cmd = [
                 "yt-dlp",
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
-                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=tv,mweb",
+                "--extractor-args", "youtubetab:skip=authcheck",
+                "--extractor-args", "youtube:player_client=tv,mweb",
+                "--download-archive", ARCHIVE_FILENAME,
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
@@ -337,14 +360,13 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             process.wait()
 
-            # رفع المقطع المكتمل وتحديث الأرشيف في Drive
+            # رفع المقطع المكتمل وتحديث أرشيف Drive فوراً
             mkv_files = glob.glob(f"{output_dir}/*.mkv")
             if mkv_files:
                 for f in mkv_files:
                     success = upload_to_organized_gdrive(drive_service, f, playlist_folder_id)
                     if success:
                         st.success(f"تم رفع `{os.path.basename(f)}` بنجاح إلى Drive!")
-                        # تسجيل المعرف في الأرشيف وتحديث ملف Drive فوراً
                         archived_ids.add(vid)
                         drive_archive_id = add_to_archive(vid, drive_service, root_folder_id, drive_archive_id)
                         os.remove(f)
@@ -358,7 +380,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             progress_bar.progress(current_num / total_videos)
             
-            # تباعد زمني آمن لتجنب حظر الـ Rate-limit
+            # فاصل أمان زمني لمنع تفعيل قيود الحظر السريع
             sleep_time = random.randint(20, 35)
             time.sleep(sleep_time)
 
