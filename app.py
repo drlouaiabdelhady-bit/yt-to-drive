@@ -5,10 +5,9 @@ import os
 import shutil
 import urllib.request
 import zipfile
-import json
 import time
 import random
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
@@ -75,49 +74,40 @@ def get_or_create_folder(drive_service, folder_name, parent_id):
         ).execute()
         return folder.get('id')
 
-# دالة الرفع المنظم الحديثة والمباشرة دون المرور بـ oauth2client
+# دالة بناء خدمة Drive باستخدام OAuth 2.0 الشخصي لتجاوز قيود الحصص نهائياً
+def get_gdrive_service():
+    client_id = st.secrets["GDRIVE_CLIENT_ID"]
+    client_secret = st.secrets["GDRIVE_CLIENT_SECRET"]
+    refresh_token = st.secrets["GDRIVE_REFRESH_TOKEN"]
+
+    creds = Credentials(
+        None,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
+    return build('drive', 'v3', credentials=creds)
+
+# دالة الرفع المنظم الحديثة والمباشرة بحسابك الشخصي
 def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
     try:
-        if "GDRIVE_KEY" not in st.secrets or "GDRIVE_FOLDER_ID" not in st.secrets:
-            st.error("بيانات Google Drive غير مكتملة في Streamlit Secrets.")
-            return False
+        required_keys = ["GDRIVE_CLIENT_ID", "GDRIVE_CLIENT_SECRET", "GDRIVE_REFRESH_TOKEN", "GDRIVE_FOLDER_ID"]
+        for k in required_keys:
+            if k not in st.secrets:
+                st.error(f"المتغير `{k}` مفقود في Streamlit Secrets.")
+                return False
 
-        raw_key = st.secrets["GDRIVE_KEY"]
-        if isinstance(raw_key, dict) or hasattr(raw_key, "to_dict"):
-            creds_dict = dict(raw_key)
-        elif isinstance(raw_key, str):
-            clean_str = raw_key.strip()
-            start_idx = clean_str.find('{')
-            end_idx = clean_str.rfind('}')
-            if start_idx != -1 and end_idx != -1:
-                clean_str = clean_str[start_idx:end_idx + 1]
-            creds_dict = json.loads(clean_str)
-        else:
-            st.error("صيغة مفتاح GDRIVE_KEY غير مدعومة.")
-            return False
-
-        # معالجة فواصل أسطر المفتاح لضمان التوافق المطلق مع تشفير Google Auth
-        if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
-            pk = creds_dict["private_key"]
-            while "\\n" in pk:
-                pk = pk.replace("\\n", "\n")
-            creds_dict["private_key"] = pk.strip()
-
-        scopes = ["https://www.googleapis.com/auth/drive"]
-        credentials = service_account.Credentials.from_service_account_info(
-            creds_dict,
-            scopes=scopes
-        )
-        drive_service = build('drive', 'v3', credentials=credentials)
-
+        drive_service = get_gdrive_service()
         root_folder_id = st.secrets["GDRIVE_FOLDER_ID"]
 
-        # إنشاء أو جلب المجلدات المنظمة
+        # إنشاء أو جلب المجلدات المنظمة (القناة -> قائمة التشغيل)
         channel_folder_id = get_or_create_folder(drive_service, channel_name, root_folder_id)
         playlist_folder_id = get_or_create_folder(drive_service, playlist_name, channel_folder_id)
 
         file_name = os.path.basename(file_path)
-        st.info(f"جاري رفع `{file_name}` إلى Google Drive...")
+        st.info(f"جاري رفع `{file_name}` بحسابك الشخصي إلى Google Drive...")
 
         file_metadata = {
             'name': file_name,
