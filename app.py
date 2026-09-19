@@ -208,7 +208,8 @@ def build_cmd(target_url, client_profile):
     cmd = [
         "yt-dlp", "--force-ipv4",
         "--remote-components", "ejs:github",
-        "--extractor-args", "youtube:player_client=mweb",
+        "--extractor-args", client_profile,
+        "--hls-prefer-native",
         "--no-playlist",
         "-f", "bv*+ba/b",
         "--merge-output-format", "mkv",
