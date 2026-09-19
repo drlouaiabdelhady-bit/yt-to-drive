@@ -95,7 +95,7 @@ def get_or_create_folder(drive_service, folder_name, parent_id):
 ARCHIVE_FILENAME = "video_archive.txt"
 
 def load_archive_from_gdrive(drive_service, root_folder_id):
-    """تحميل ملف video_archive.txt مع تنظيف الـ BOM الخفي ومطابقة المعرفات بـ Regex"""
+    """تحميل ملف video_archive.txt مع تنظيف الـ BOM ومطابقة المعرفات بـ Regex"""
     query = f"name = '{ARCHIVE_FILENAME}' and '{root_folder_id}' in parents and trashed = false"
     res = drive_service.files().list(
         q=query,
@@ -273,15 +273,14 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
-            # مشغلات tv و web الرسمية الآمنة لتفادي أخطاء PO-Token و Please sign in
-        cmd = [
+            # أمر التحميل مع أولوية AV01 و Opus ودعم التراجع السلس
+            cmd = [
                 "yt-dlp",
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
                 "--extractor-args", "youtubetab:skip=authcheck",
                 "--extractor-args", "youtube:player_client=android_creator,web",
                 "--no-playlist",
-                # الترتيب المحدث بعد حذف (صورة AV1 + صوت Opus بأي لغة):
                 "-f", "bv*[vcodec^=av01]+ba[acodec=opus][language^=ar]/bv*[vcodec^=av01]+ba[language^=ar]/bv*[vcodec^=av01]+ba/bv*+ba[acodec=opus][language^=ar]/bv*+ba[acodec=opus]/bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
                 "--embed-metadata",
