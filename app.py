@@ -39,9 +39,9 @@ def prepare_js_engine():
 
 prepare_js_engine()
 
-# 2. حقن الكوكيز المحدثة تلقائياً من Streamlit Secrets
+# 2. حقن الكوكيز تلقائياً من Streamlit Secrets (في حال توفرها)
 cookie_path = os.path.join(os.getcwd(), "session_cookies.txt")
-if "YOUTUBE_COOKIES" in st.secrets:
+if "YOUTUBE_COOKIES" in st.secrets and st.secrets["YOUTUBE_COOKIES"].strip():
     with open(cookie_path, "w", encoding="utf-8") as f:
         f.write(st.secrets["YOUTUBE_COOKIES"])
 
@@ -147,6 +147,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         
         list_cmd = [
             "yt-dlp",
+            "--force-ipv4",
             "--flat-playlist",
             "--print", "%(id)s|||%(channel)s|||%(playlist_title)s",
             "--extractor-args", "youtubetab:skip=authcheck"
@@ -195,9 +196,10 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             cmd = [
                 "yt-dlp",
+                "--force-ipv4",
                 "--remote-components", "ejs:github",
-                # انتحال عملاء أندرويد والتلفاز لتجاوز تدقيق الويب وسيرفرات الداتاسنتر وتفادي الـ 403
-                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=android,tv,mweb",
+                # تجاوز فحص PO-Token ومنع خطأ 403 عبر عملاء iOS و TV Embedded الموثوقين
+                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=ios,tv_embedded,web_embedded",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
@@ -258,7 +260,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
             progress_bar.progress((idx + 1) / total_videos)
             
             # فاصل أمان زمني لتفادي رصد المعدل والـ Rate-limit
-            sleep_time = random.randint(15, 25)
+            sleep_time = random.randint(12, 22)
             time.sleep(sleep_time)
 
         st.success("تم الانتهاء من أرشفة كامل المحتوى بنجاح!")
