@@ -62,7 +62,7 @@ def get_or_create_folder(drive, folder_name, parent_id):
         folder.Upload()
         return folder['id']
 
-# دالة الرفع المنظم إلى Google Drive مع تصحيح نطاق الصلاحيات oauth_scope
+# دالة الرفع المنظم إلى Google Drive مع معالجة فواصل أسطر المفتاح الخاص
 def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
     temp_creds_path = "temp_service_account.json"
     try:
@@ -84,6 +84,13 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
             st.error("صيغة مفتاح GDRIVE_KEY غير مدعومة.")
             return False
 
+        # معالجة فواصل أسطر المفتاح الخاص لحل خطأ DECODER routines نهائياً
+        if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
+            pk = creds_dict["private_key"]
+            while "\\n" in pk:
+                pk = pk.replace("\\n", "\n")
+            creds_dict["private_key"] = pk.strip()
+
         client_email = creds_dict.get("client_email", "")
         creds_dict["client_user_email"] = client_email
 
@@ -92,7 +99,6 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
 
         root_folder_id = st.secrets["GDRIVE_FOLDER_ID"]
 
-        # ضبط إعدادات PyDrive2 مع توفير oauth_scope لتفادي الخطأ
         gauth = GoogleAuth()
         gauth.settings = {
             "client_config_backend": "service",
@@ -237,7 +243,6 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             progress_bar.progress((idx + 1) / len(video_entries))
             
-            # فاصل زمني عشوائي لمحاكاة التصفح الطبيعي
             sleep_time = random.randint(6, 12)
             time.sleep(sleep_time)
 
