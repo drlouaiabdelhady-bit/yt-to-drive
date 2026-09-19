@@ -274,14 +274,13 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
             # أمر التحميل مع أولوية AV01 و Opus ودعم التراجع السلس
-            cmd = [
+           cmd = [
                 "yt-dlp",
-                "--force-ipv4",
                 "--remote-components", "ejs:github",
-                "--extractor-args", "youtubetab:skip=authcheck",
-                "--extractor-args", "youtube:player_client=android_creator,web",
+                # العميل الأصلي المجرب الذي نجح في تحميل ورفع 17 حلقة متتالية
+                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=android,tv,mweb",
                 "--no-playlist",
-                "-f", "bv*[vcodec^=av01]+ba[acodec=opus][language^=ar]/bv*[vcodec^=av01]+ba[language^=ar]/bv*[vcodec^=av01]+ba/bv*+ba[acodec=opus][language^=ar]/bv*+ba[acodec=opus]/bv*+ba[language^=ar]/bv*+ba/b",
+                "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
                 "--embed-metadata",
                 "--embed-chapters",
@@ -292,13 +291,12 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 "--windows-filenames",
                 "--trim-filenames", "200",
                 "--clean-info-json",
-                "--limit-rate", "12M",
                 "--retries", "10",
                 "--fragment-retries", "10",
+                "--retry-sleep", "fragment:exp=1:20",
                 "--socket-timeout", "30",
                 "-o", f"{output_dir}/%(title)s.%(ext)s"
             ]
-
             if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
                 cmd.extend(["--cookies", cookie_path])
 
