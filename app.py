@@ -127,7 +127,7 @@ def load_archive_from_gdrive(drive_service, root_folder_id):
             match = re.search(r'youtube\s+([a-zA-Z0-9_-]{11})', clean_line)
             if match:
                 archived_ids.add(match.group(1))
-            elif len(clean_line) == 11 and clean_line.isalnum():
+            elif len(clean_line) == 11:
                 archived_ids.add(clean_line)
     else:
         with open(ARCHIVE_FILENAME, "w", encoding="utf-8") as f:
@@ -273,13 +273,13 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
 
-            # أمر التحميل الخالي تماماً من mweb لتفادي قيود PO Token
+            # مشغلات tv و web الرسمية الآمنة لتفادي أخطاء PO-Token و Please sign in
             cmd = [
                 "yt-dlp",
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
                 "--extractor-args", "youtubetab:skip=authcheck",
-                "--extractor-args", "youtube:player_client=tv_embedded,web_creator,tv",
+                "--extractor-args", "youtube:player_client=tv,web",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
@@ -340,7 +340,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             progress_bar.progress(current_num / total_videos)
             
-            # فاصل أمان زمني لمنع تفعيل قيود الحظر السريع
+            # فاصل أمان زمني لمنع تفعيل قيود الحظر
             sleep_time = random.randint(20, 35)
             time.sleep(sleep_time)
 
