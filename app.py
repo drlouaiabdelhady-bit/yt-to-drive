@@ -14,9 +14,9 @@ from googleapiclient.http import MediaFileUpload
 st.set_page_config(page_title="YouTube MKV Archiver & Drive", layout="centered")
 
 st.title("أرشفة يوتيوب إلى Matroska (MKV) والرفع السحابي المنظم")
-st.caption("بروفايل أرشفة متكامل: أعلى دقة | فصول | ترجمات | غلاف | أرشفة متسلسلة آمنة للقوائم")
+st.caption("بروفايل أرشفة متكامل: أعلى دقة | فصول | ترجمات | غلاف | استئناف تلقائي ذكي")
 
-# 1. تجهيز محرك Deno السحابي تلقائياً لحل تحديات التشفير (n-challenge)
+# 1. تجهيز محرك Deno السحابي لحل شفرات التحدي (n-challenge)
 @st.cache_resource
 def prepare_js_engine():
     deno_bin = os.path.join(os.getcwd(), "deno")
@@ -39,13 +39,22 @@ def prepare_js_engine():
 
 prepare_js_engine()
 
-# 2. حقن الكوكيز تلقائياً من Streamlit Secrets (في حال توفرها)
-cookie_path = os.path.join(os.getcwd(), "session_cookies.txt")
-if "YOUTUBE_COOKIES" in st.secrets and st.secrets["YOUTUBE_COOKIES"].strip():
-    with open(cookie_path, "w", encoding="utf-8") as f:
-        f.write(st.secrets["YOUTUBE_COOKIES"])
+# 2. دوال Google Drive الرسمية (v3) عبر OAuth 2.0 الشخصي
+def get_gdrive_service():
+    client_id = st.secrets["GDRIVE_CLIENT_ID"]
+    client_secret = st.secrets["GDRIVE_CLIENT_SECRET"]
+    refresh_token = st.secrets["GDRIVE_REFRESH_TOKEN"]
 
-# دالة مساعدة للبحث عن مجلد أو إنشائه عبر مكتبة Google Drive الرسمية (v3)
+    creds = Credentials(
+        None,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
+    return build('drive', 'v3', credentials=creds)
+
 def get_or_create_folder(drive_service, folder_name, parent_id):
     safe_name = folder_name.replace("'", "\\'")
     query = f"name = '{safe_name}' and '{parent_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
@@ -74,38 +83,23 @@ def get_or_create_folder(drive_service, folder_name, parent_id):
         ).execute()
         return folder.get('id')
 
-# دالة بناء خدمة Drive باستخدام OAuth 2.0 الشخصي لتجاوز قيود الحصص نهائياً
-def get_gdrive_service():
-    client_id = st.secrets["GDRIVE_CLIENT_ID"]
-    client_secret = st.secrets["GDRIVE_CLIENT_SECRET"]
-    refresh_token = st.secrets["GDRIVE_REFRESH_TOKEN"]
-
-    creds = Credentials(
-        None,
-        refresh_token=refresh_token,
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=client_id,
-        client_secret=client_secret,
-        scopes=["https://www.googleapis.com/auth/drive"]
-    )
-    return build('drive', 'v3', credentials=creds)
-
-# دالة الرفع المنظم الحديثة والمباشرة بحسابك الشخصي
-def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
+def get_existing_drive_filenames(drive_service, folder_id):
+    """جلب قائمة الملفات المرفوعة مسبقاً لتفادي إعادة تحميلها"""
     try:
-        required_keys = ["GDRIVE_CLIENT_ID", "GDRIVE_CLIENT_SECRET", "GDRIVE_REFRESH_TOKEN", "GDRIVE_FOLDER_ID"]
-        for k in required_keys:
-            if k not in st.secrets:
-                st.error(f"المتغير `{k}` مفقود في Streamlit Secrets.")
-                return False
+        query = f"'{folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
+        response = drive_service.files().list(
+            q=query,
+            spaces='drive',
+            fields='files(name)',
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
+        return [f['name'] for f in response.get('files', [])]
+    except Exception:
+        return []
 
-        drive_service = get_gdrive_service()
-        root_folder_id = st.secrets["GDRIVE_FOLDER_ID"]
-
-        # إنشاء أو جلب المجلدات المنظمة (القناة -> قائمة التشغيل)
-        channel_folder_id = get_or_create_folder(drive_service, channel_name, root_folder_id)
-        playlist_folder_id = get_or_create_folder(drive_service, playlist_name, channel_folder_id)
-
+def upload_to_organized_gdrive(drive_service, file_path, playlist_folder_id):
+    try:
         file_name = os.path.basename(file_path)
         st.info(f"جاري رفع `{file_name}` بحسابك الشخصي إلى Google Drive...")
 
@@ -133,7 +127,7 @@ def upload_to_organized_gdrive(file_path, channel_name, playlist_name):
         st.error(f"حدث خطأ أثناء الرفع إلى Google Drive: {e}")
         return False
 
-# واجهة إدخال عامة وموحدة
+# واجهة استخدام عامة ونظيفة
 url = st.text_input("رابط الفيديو أو قائمة التشغيل:", placeholder="https://www.youtube.com/watch?v=...")
 
 if st.button("بدء الأرشفة المتسلسلة والرفع المنظم", type="primary"):
@@ -143,20 +137,22 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         output_dir = "downloads"
         os.makedirs(output_dir, exist_ok=True)
 
-        st.info("جاري فحص الرابط واستخراج البيانات...")
+        st.info("جاري فحص الرابط وبناء الهيكلية...")
         
+        drive_service = get_gdrive_service()
+        root_folder_id = st.secrets["GDRIVE_FOLDER_ID"]
+
+        # استخراج بيانات القائمة والعناوين
         list_cmd = [
             "yt-dlp",
             "--force-ipv4",
             "--flat-playlist",
-            "--print", "%(id)s|||%(channel)s|||%(playlist_title)s",
-            "--extractor-args", "youtubetab:skip=authcheck"
+            "--print", "%(id)s|||%(channel)s|||%(playlist_title)s|||%(title)s",
+            "--extractor-args", "youtubetab:skip=authcheck",
+            url.strip()
         ]
-        if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
-            list_cmd.extend(["--cookies", cookie_path])
-        list_cmd.append(url.strip())
 
-        video_entries = []
+        video_items = []
         channel_name = "قناة عامة"
         playlist_name = "فيديوهات فردية"
 
@@ -169,37 +165,63 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 if len(parts) >= 1:
                     vid_id = parts[0].strip()
                     if vid_id and len(vid_id) == 11:
-                        video_entries.append(vid_id)
+                        v_title = parts[3].strip() if len(parts) >= 4 else ""
+                        video_items.append({"id": vid_id, "title": v_title})
                     if len(parts) >= 2 and parts[1].strip() and channel_name == "قناة عامة":
                         channel_name = parts[1].strip()
                     if len(parts) >= 3 and parts[2].strip() and parts[2].strip() != "NA" and playlist_name == "فيديوهات فردية":
                         playlist_name = parts[2].strip()
             
-            if not video_entries:
-                video_entries = [url.strip()]
+            if not video_items:
+                video_items = [{"id": url.strip(), "title": ""}]
         except Exception:
-            video_entries = [url.strip()]
+            video_items = [{"id": url.strip(), "title": ""}]
 
         channel_name = "".join(c for c in channel_name if c.isalnum() or c in (' ', '-', '_')).strip()
         playlist_name = "".join(c for c in playlist_name if c.isalnum() or c in (' ', '-', '_')).strip()
 
-        total_videos = len(video_entries)
-        st.success(f"تم العثور على {total_videos} مقطع. تبدأ الأرشفة بالتتابع...")
+        # تجهيز المجلدات في Google Drive مسبقاً
+        channel_folder_id = get_or_create_folder(drive_service, channel_name, root_folder_id)
+        playlist_folder_id = get_or_create_folder(drive_service, playlist_name, channel_folder_id)
+
+        # فحص الملفات المرفوعة مسبقاً في Drive للاستئناف التلقائي
+        existing_drive_files = get_existing_drive_filenames(drive_service, playlist_folder_id)
+
+        total_videos = len(video_items)
+        st.success(f"تم العثور على {total_videos} مقطع. تبدأ الأرشفة الذكية...")
 
         progress_bar = st.progress(0)
         status_text = st.empty()
         terminal_box = st.empty()
 
-        for idx, vid in enumerate(video_entries):
+        for idx, item in enumerate(video_items):
+            vid = item["id"]
+            title_hint = item["title"]
             target_url = f"https://www.youtube.com/watch?v={vid}" if len(vid) == 11 else vid
-            status_text.markdown(f"**معالجة المقطع ({idx + 1} / {total_videos}):** `{target_url}`")
+            current_num = idx + 1
 
+            # تخطي ذكي تلقائي: إذا كان المقطع موجوداً في Drive مسبقاً
+            is_already_uploaded = False
+            if title_hint:
+                # التحقق بمطابقة بداية العنوان
+                short_title = title_hint[:25].strip()
+                if any(short_title in df for df in existing_drive_files):
+                    is_already_uploaded = True
+
+            if is_already_uploaded:
+                status_text.markdown(f"⏭️ **المقطع ({current_num} / {total_videos}):** `{title_hint}` موجود مسبقاً في Drive، تم التخطي.")
+                progress_bar.progress(current_num / total_videos)
+                continue
+
+            status_text.markdown(f"⬇️ **معالجة المقطع ({current_num} / {total_videos}):** `{target_url}`")
+
+            # أمر التحميل المباشر الآمن والمعتمد حصراً على مشغل التلفاز
             cmd = [
                 "yt-dlp",
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
-                # تجاوز فحص PO-Token ومنع خطأ 403 عبر عملاء iOS و TV Embedded الموثوقين
-                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=ios,tv_embedded,web_embedded",
+                # عميل التلفاز المدمج فقط (بدون ios وبدون visionos المسببين للـ 403)
+                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=tv_embedded",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
@@ -216,13 +238,9 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 "--fragment-retries", "10",
                 "--retry-sleep", "fragment:exp=1:20",
                 "--socket-timeout", "30",
-                "-o", f"{output_dir}/%(title)s.%(ext)s"
+                "-o", f"{output_dir}/%(title)s.%(ext)s",
+                target_url
             ]
-
-            if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
-                cmd.extend(["--cookies", cookie_path])
-
-            cmd.append(target_url)
 
             process = subprocess.Popen(
                 cmd,
@@ -240,27 +258,27 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             process.wait()
 
-            # رفع الملف المكتمل فوراً وتفريغ مساحة السيرفر
+            # رفع الملف المكتمل وتفريغ المساحة فوراً
             mkv_files = glob.glob(f"{output_dir}/*.mkv")
             if mkv_files:
                 for f in mkv_files:
-                    success = upload_to_organized_gdrive(f, channel_name, playlist_name)
+                    success = upload_to_organized_gdrive(drive_service, f, playlist_folder_id)
                     if success:
                         st.success(f"تم رفع `{os.path.basename(f)}` بنجاح إلى Drive!")
+                        existing_drive_files.append(os.path.basename(f))
                         os.remove(f)
             else:
-                st.error(f"تعذر تحميل المقطع رقم {idx + 1}. راجع السجل أعلاه.")
-                # تنظيف أي بقايا مؤقتة تالفة لتفريغ المساحة
+                st.error(f"تعذر تحميل المقطع رقم {current_num}. راجع السجل أعلاه.")
                 for leftover in glob.glob(f"{output_dir}/*"):
                     try:
                         os.remove(leftover)
                     except Exception:
                         pass
 
-            progress_bar.progress((idx + 1) / total_videos)
+            progress_bar.progress(current_num / total_videos)
             
-            # فاصل أمان زمني لتفادي رصد المعدل والـ Rate-limit
-            sleep_time = random.randint(12, 22)
+            # فاصل أمان زمني لمنع رصد المعدل
+            sleep_time = random.randint(12, 20)
             time.sleep(sleep_time)
 
         st.success("تم الانتهاء من أرشفة كامل المحتوى بنجاح!")
