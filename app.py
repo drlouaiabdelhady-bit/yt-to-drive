@@ -39,7 +39,13 @@ def prepare_js_engine():
 
 prepare_js_engine()
 
-# 2. دوال Google Drive الرسمية (v3) عبر OAuth 2.0 الشخصي
+# 2. حقن الكوكيز المعتمدة تلقائياً لتفادي حظر الداتاسنتر
+cookie_path = os.path.join(os.getcwd(), "session_cookies.txt")
+if "YOUTUBE_COOKIES" in st.secrets and st.secrets["YOUTUBE_COOKIES"].strip():
+    with open(cookie_path, "w", encoding="utf-8") as f:
+        f.write(st.secrets["YOUTUBE_COOKIES"].strip())
+
+# 3. دوال Google Drive الرسمية (v3) عبر OAuth 2.0 الشخصي
 def get_gdrive_service():
     client_id = st.secrets["GDRIVE_CLIENT_ID"]
     client_secret = st.secrets["GDRIVE_CLIENT_SECRET"]
@@ -84,7 +90,7 @@ def get_or_create_folder(drive_service, folder_name, parent_id):
         return folder.get('id')
 
 def get_existing_drive_filenames(drive_service, folder_id):
-    """جلب أسماء الملفات المرفوعة مسبقاً لتفادي إعادة التنزيل"""
+    """جلب أسماء المقاطع المرفوعة مسبقاً لتفادي تكرارها"""
     try:
         query = f"'{folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
         response = drive_service.files().list(
@@ -99,7 +105,7 @@ def get_existing_drive_filenames(drive_service, folder_id):
         return []
 
 def normalize_title(name):
-    """تطبيع دقيق للعنوان بمقارنة الأحرف والأرقام وتجاهل الامتدادات والفواصل"""
+    """تطبيع دقيق للأحرف والأرقام لتجنب أخطاء المطابقة النصية"""
     base = os.path.splitext(name)[0]
     return "".join(c for c in base if c.isalnum()).lower()
 
@@ -132,7 +138,7 @@ def upload_to_organized_gdrive(drive_service, file_path, playlist_folder_id):
         st.error(f"حدث خطأ أثناء الرفع إلى Google Drive: {e}")
         return False
 
-# واجهة مستخدم نظيفة وموحدة
+# واجهة مستخدم موحدة
 url = st.text_input("رابط الفيديو أو قائمة التشغيل:", placeholder="https://www.youtube.com/watch?v=...")
 
 if st.button("بدء الأرشفة المتسلسلة والرفع المنظم", type="primary"):
@@ -142,20 +148,22 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         output_dir = "downloads"
         os.makedirs(output_dir, exist_ok=True)
 
-        st.info("جاري فحص الرابط وبناء الهيكلية السحابية...")
+        st.info("جاري فحص الرابط ومزامنة المجلدات السحابية...")
         
         drive_service = get_gdrive_service()
         root_folder_id = st.secrets["GDRIVE_FOLDER_ID"]
 
-        # استخراج بيانات القائمة
+        # استخراج بيانات عناصر القائمة
         list_cmd = [
             "yt-dlp",
             "--force-ipv4",
             "--flat-playlist",
             "--print", "%(id)s|||%(channel)s|||%(playlist_title)s|||%(title)s",
-            "--extractor-args", "youtubetab:skip=authcheck",
-            url.strip()
+            "--extractor-args", "youtubetab:skip=authcheck"
         ]
+        if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
+            list_cmd.extend(["--cookies", cookie_path])
+        list_cmd.append(url.strip())
 
         video_items = []
         channel_name = "قناة عامة"
@@ -189,12 +197,12 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
         channel_folder_id = get_or_create_folder(drive_service, channel_name, root_folder_id)
         playlist_folder_id = get_or_create_folder(drive_service, playlist_name, channel_folder_id)
 
-        # استعلام الملفات الموجودة حالياً في Drive لتفادي تكرار رفعها
+        # استعلام الملفات الموجودة حالياً في Drive لتفادي تكرار التحميل
         existing_drive_files = get_existing_drive_filenames(drive_service, playlist_folder_id)
         existing_normalized = [normalize_title(f) for f in existing_drive_files]
 
         total_videos = len(video_items)
-        st.success(f"تم العثور على {total_videos} مقطع. تبدأ الأرشفة الذكية...")
+        st.success(f"تم فحص القائمة ({total_videos} مقطع). بدء استئناف الأرشفة...")
 
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -206,10 +214,10 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
             target_url = f"https://www.youtube.com/watch?v={vid}" if len(vid) == 11 else vid
             current_num = idx + 1
 
-            # التخطي الدقيق: فحص ما إذا كانت هذه الحلقة بعينها قد رُفعت مسبقاً
+            # التحقق الذكي: تخطي المقطع إذا كان مرفوعاً مسبقاً في Drive
             norm_target = normalize_title(title_hint)
-            if norm_target and any(norm_target == en for en in existing_normalized):
-                status_text.markdown(f"⏭️ **المقطع ({current_num} / {total_videos}):** `{title_hint}` مرفوع مسبقاً في Drive، تم التخطي.")
+            if norm_target and any(norm_target in en or en in norm_target for en in existing_normalized):
+                status_text.markdown(f"⏭️ **المقطع ({current_num} / {total_videos}):** `{title_hint}` مرفوع مسبقاً، تم التخطي.")
                 progress_bar.progress(current_num / total_videos)
                 continue
 
@@ -219,8 +227,8 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 "yt-dlp",
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
-                # مشغل التلفاز والويب المحمول لتجاوز قيود 403 ومنع استدعاء visionos
-                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=tv,mweb",
+                # التكوين الناجح الأصلي لتلفاز يوتيوب والويب
+                "--extractor-args", "youtubetab:skip=authcheck;youtube:player_client=tv_embedded,web",
                 "--no-playlist",
                 "-f", "bv*+ba[language^=ar]/bv*+ba/b",
                 "--merge-output-format", "mkv",
@@ -233,13 +241,17 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 "--windows-filenames",
                 "--trim-filenames", "200",
                 "--clean-info-json",
+                "--limit-rate", "15M",
                 "--retries", "10",
                 "--fragment-retries", "10",
-                "--retry-sleep", "fragment:exp=1:20",
                 "--socket-timeout", "30",
-                "-o", f"{output_dir}/%(title)s.%(ext)s",
-                target_url
+                "-o", f"{output_dir}/%(title)s.%(ext)s"
             ]
+
+            if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
+                cmd.extend(["--cookies", cookie_path])
+
+            cmd.append(target_url)
 
             process = subprocess.Popen(
                 cmd,
@@ -257,7 +269,7 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             process.wait()
 
-            # رفع المقطع المكتمل فوراً وتفريغ المساحة
+            # رفع المقطع المكتمل وتفريغ مساحة السيرفر فوراً
             mkv_files = glob.glob(f"{output_dir}/*.mkv")
             if mkv_files:
                 for f in mkv_files:
@@ -276,8 +288,8 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
 
             progress_bar.progress(current_num / total_videos)
             
-            # فاصل أمان زمني لمنع رصد المعدل
-            sleep_time = random.randint(12, 20)
+            # تباعد زمني آمن لمنع تفعيل قيود الحظر السريع
+            sleep_time = random.randint(25, 40)
             time.sleep(sleep_time)
 
         st.success("تم الانتهاء من أرشفة كامل المحتوى بنجاح!")
