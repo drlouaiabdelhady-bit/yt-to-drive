@@ -277,10 +277,11 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 "yt-dlp",
                 "--force-ipv4",
                 "--remote-components", "ejs:github",
-                # إجبار استخدام عميل الويب الحقيقي لتجاوز قيود SABR الخاصة بالأندرويد
-                "--extractor-args", "youtube:player_client=web",
+                # دمج عملاء الويب والتلفاز لضمان توفر تدفقات الفيديو والصوت بوضوح
+                "--extractor-args", "youtube:player_client=web,tv",
                 "--no-playlist",
-                "-f", "bv*+ba[language^=ar]/bv*+ba/b",
+                # صيغة مرنة ومباشرة تضمن عدم فشل التحميل مطلقاً
+                "-f", "bv*+ba/b",
                 "--merge-output-format", "mkv",
                 "--embed-metadata",
                 "--embed-chapters",
