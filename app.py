@@ -19,19 +19,19 @@ st.title("أرشفة يوتيوب إلى Matroska (MKV) والرفع السحا�
 st.caption("بروفايل أرشفة متكامل: أعلى دقة | فصول | ترجمات | غلاف | استئناف قياسي بملف video_archive.txt")
 
 # ---------------------------------------------------------------
-# إعدادات عامة
+# إعدادات عامة محسّنة ومستقرة
 # ---------------------------------------------------------------
 OUTPUT_DIR = "downloads"
 ARCHIVE_FILENAME = "video_archive.txt"
 
-CLIENT_PROFILES = [
-    "youtube:player_client=default,web_embedded",
-    "youtube:player_client=web_safari",
-    "youtube:player_client=mweb",
+# حصر المشغلات على web_embedded مع تجربة الكوكيز وبدونها كاحتياط
+CLIENT_ATTEMPTS = [
+    {"profile": "youtube:player_client=default,web_embedded", "use_cookies": True},
+    {"profile": "youtube:player_client=web_embedded", "use_cookies": False},
 ]
-MAX_ATTEMPTS = 3            # محاولات لكل مقطع (برابط جديد وعميل مختلف)
-MAX_CONSECUTIVE_FAILS = 2   # توقف كامل بعد فشل مقطعين متتاليين
-MAX_NEW_PER_RUN = 8         # عدد المقاطع الجديدة في كل تشغيل
+
+MAX_ATTEMPTS = len(CLIENT_ATTEMPTS)
+MAX_CONSECUTIVE_FAILS = 2   # توقف كامل بعد فشل مقطعين متتاليين لحماية الـ IP
 
 # 1. تجهيز محرك Deno السحابي تلقائياً لحل تحديات التشفير (n-challenge)
 @st.cache_resource
@@ -108,7 +108,6 @@ def get_or_create_folder(drive_service, folder_name, parent_id):
 
 # 4. منظومة إدارة ملف الأرشفة القياسي (video_archive.txt)
 def load_archive_from_gdrive(drive_service, root_folder_id):
-    """تحميل ملف video_archive.txt مع تنظيف الـ BOM ومطابقة المعرفات بـ Regex"""
     query = f"name = '{ARCHIVE_FILENAME}' and '{root_folder_id}' in parents and trashed = false"
     res = drive_service.files().list(
         q=query,
@@ -149,7 +148,6 @@ def load_archive_from_gdrive(drive_service, root_folder_id):
     return archived_ids, drive_archive_id
 
 def append_and_sync_archive(vid_id, drive_service, root_folder_id, drive_archive_id):
-    """إضافة المعرف إلى الأرشيف بعد الرفع الناجح ومزامنته سحابياً"""
     with open(ARCHIVE_FILENAME, "a", encoding="utf-8") as f:
         f.write(f"youtube {vid_id}\n")
 
@@ -203,15 +201,14 @@ def upload_to_organized_gdrive(drive_service, file_path, playlist_folder_id):
         st.error(f"حدث خطأ أثناء الرفع إلى Google Drive: {e}")
         return False
 
-# 5. دوال التحميل
-def build_cmd(target_url, client_profile):
+# 5. دوال التحميل والتنظيف
+def build_cmd(target_url, client_profile, use_cookies=True):
     cmd = [
         "yt-dlp", "--force-ipv4",
         "--remote-components", "ejs:github",
         "--extractor-args", client_profile,
-        # تم حذف وسيط --hls-prefer-native لمنع جلب روابط m3u8 المحظورة
         "--no-playlist",
-        "-f", "bv*+ba/b",
+        "-f", "bv*+ba[language^=ar]/bv*+ba/b",
         "--merge-output-format", "mkv",
         "--embed-metadata", "--embed-chapters", "--embed-thumbnail",
         "--embed-subs", "--sub-langs", "ar,en", "--sub-format", "srt/ass/best",
@@ -219,27 +216,35 @@ def build_cmd(target_url, client_profile):
         "--clean-info-json",
         "--limit-rate", "8M",
         "--retries", "3",
-        "--fragment-retries", "2",          # لا فائدة من تكرار رابط مرفوض
+        "--fragment-retries", "2",
         "--retry-sleep", "fragment:exp=1:8",
         "--socket-timeout", "30",
         "-o", f"{OUTPUT_DIR}/%(title)s.%(ext)s",
     ]
-    if os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
+    if use_cookies and os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 0:
         cmd.extend(["--cookies", cookie_path])
+        
     cmd.append(target_url)
     return cmd
 
 def clean_downloads():
     for leftover in glob.glob(f"{OUTPUT_DIR}/*"):
         try:
-            os.remove(leftover)
+            if os.path.isfile(leftover) or os.path.islink(leftover):
+                os.remove(leftover)
+            elif os.path.isdir(leftover):
+                shutil.rmtree(leftover)
         except Exception:
             pass
 
 # ---------------------------------------------------------------
 # واجهة المستخدم
 # ---------------------------------------------------------------
-url = st.text_input("رابط الفيديو أو قائمة التشغيل:", placeholder="https://www.youtube.com/watch?v=...")
+col_url, col_limit = st.columns([3, 1])
+with col_url:
+    url = st.text_input("رابط الفيديو أو قائمة التشغيل:", placeholder="https://www.youtube.com/watch?v=...")
+with col_limit:
+    max_new_allowed = st.number_input("الحد الأقصى للمقاطع الجديدة:", min_value=1, max_value=50, value=15)
 
 if st.button("بدء الأرشفة المتسلسلة والرفع المنظم", type="primary"):
     if not url.strip():
@@ -321,19 +326,22 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 progress_bar.progress(current_num / total_videos)
                 continue
 
-            if new_done >= MAX_NEW_PER_RUN:
-                st.warning(f"تم بلوغ حد {MAX_NEW_PER_RUN} مقاطع في هذا التشغيل. أعد التشغيل لاحقاً لإكمال الباقي (الأرشيف يحفظ ما تم).")
+            if new_done >= max_new_allowed:
+                st.warning(f"تم بلوغ حد {max_new_allowed} مقاطع في هذا التشغيل. أعد التشغيل لاحقاً لإكمال الباقي (الأرشيف يحفظ ما تم).")
                 stopped_early = True
                 break
 
             downloaded = False
-            for attempt in range(MAX_ATTEMPTS):
+            for attempt_idx, config in enumerate(CLIENT_ATTEMPTS):
                 clean_downloads()
-                profile = CLIENT_PROFILES[attempt % len(CLIENT_PROFILES)]
-                status_text.markdown(f"⬇️ **({current_num}/{total_videos})** `{target_url}` — المحاولة {attempt + 1}/{MAX_ATTEMPTS}")
+                profile = config["profile"]
+                use_cookies = config["use_cookies"]
+                
+                cookie_status = "مع الكوكيز" if use_cookies else "بدون كوكيز"
+                status_text.markdown(f"⬇️ **({current_num}/{total_videos})** `{target_url}` — المحاولة {attempt_idx + 1}/{MAX_ATTEMPTS} ({cookie_status})")
 
                 process = subprocess.Popen(
-                    build_cmd(target_url, profile),
+                    build_cmd(target_url, profile, use_cookies=use_cookies),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
@@ -350,9 +358,9 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                     downloaded = True
                     break
 
-                if attempt < MAX_ATTEMPTS - 1:
-                    wait = random.randint(60, 120) * (attempt + 1)
-                    status_text.markdown(f"⚠️ فشلت المحاولة {attempt + 1}. انتظار {wait} ثانية ثم إعادة الاستخراج برابط جديد...")
+                if attempt_idx < MAX_ATTEMPTS - 1:
+                    wait = random.randint(40, 75) * (attempt_idx + 1)
+                    status_text.markdown(f"⚠️ فشلت المحاولة {attempt_idx + 1}. انتظار {wait} ثانية ثم إعادة المحاولة بالبروفايل البديل...")
                     time.sleep(wait)
 
             uploaded_ok = False
@@ -373,14 +381,14 @@ if st.button("بدء الأرشفة المتسلسلة والرفع المنظم
                 consecutive_fails += 1
                 st.error(f"تعذر تحميل/رفع المقطع رقم {current_num}. راجع السجل أعلاه.")
                 if consecutive_fails >= MAX_CONSECUTIVE_FAILS:
-                    st.error("توقف تلقائي: فشل متتالٍ يعني أن الـ IP أو الجلسة محظورة مؤقتاً. أعد التشغيل بعد عدة ساعات.")
+                    st.error("توقف تلقائي: فشل متتالٍ يعني أن الـ IP أو الجلسة محظورة مؤقتاً. أعد التشغيل بعد فترة.")
                     stopped_early = True
                     break
 
             progress_bar.progress(current_num / total_videos)
 
-            # فاصل أمان زمني لمنع تفعيل قيود الحظر
-            time.sleep(random.randint(45, 90))
+            # فاصل أمان زمني ذكي بين كل مقطع وآخر (بين 35 و 65 ثانية)
+            time.sleep(random.randint(35, 65))
 
         if not stopped_early:
             st.success("تم الانتهاء من أرشفة كامل المحتوى بنجاح!")
