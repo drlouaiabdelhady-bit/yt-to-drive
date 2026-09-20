@@ -26,7 +26,7 @@ ARCHIVE_FILENAME = "video_archive.txt"
 
 # حصر المشغلات على web_embedded مع تجربة الكوكيز وبدونها كاحتياط
 CLIENT_ATTEMPTS = [
-    {"profile": "youtube:player_client=default,web_embedded", "use_cookies": True},
+    {"profile": "youtube:player_client=web_embedded", "use_cookies": True},
     {"profile": "youtube:player_client=web_embedded", "use_cookies": False},
 ]
 
