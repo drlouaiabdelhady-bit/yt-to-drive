@@ -209,7 +209,7 @@ def build_cmd(target_url, client_profile):
         "yt-dlp", "--force-ipv4",
         "--remote-components", "ejs:github",
         "--extractor-args", client_profile,
-        "--hls-prefer-native",
+        # تم حذف وسيط --hls-prefer-native لمنع جلب روابط m3u8 المحظورة
         "--no-playlist",
         "-f", "bv*+ba/b",
         "--merge-output-format", "mkv",
